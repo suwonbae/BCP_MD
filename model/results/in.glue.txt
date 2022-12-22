@@ -1,0 +1,82 @@
+# lammps input file
+# Variable
+variable		T_start equal 1.2
+variable		T_end equal 1.2
+variable		T_damp equal 10.0
+
+# Initialization
+units			lj
+boundary		p p f
+atom_style		bond
+
+# Forcefield and coordinates data
+neighbor		0.3 bin
+neigh_modify	delay 0 one 2000 page 20000
+bond_style		fene
+pair_style		hybrid lj/cut 2.5
+pair_modify		shift yes 
+
+read_data		data_tuned.txt
+bond_coeff		* 30.0 1.5 1.0 1.0
+
+special_bonds	fene angle no dihedral no lj/coul 0 1 1
+
+comm_style		tiled
+
+pair_coeff      * * none
+pair_coeff      1 1 lj/cut 1.0 1.0 2.5
+pair_coeff      1 2 lj/cut 1.0 1.0 2.5
+pair_coeff      2 2 lj/cut 1.0 1.0 2.5
+
+pair_coeff      1 3 lj/cut 1.0 1.0 2.5
+pair_coeff      1 4 lj/cut 1.0 1.0 2.5
+pair_coeff      2 3 lj/cut 1.0 1.0 2.5
+pair_coeff      2 4 lj/cut 1.0 1.0 2.5
+
+group           A type 1
+group           B type 2
+group           C type 3
+group           D type 4
+group           poly union A B
+group           subs union C D
+
+#####################################################
+fix             zwall_lo poly wall/reflect zlo EDGE
+fix             zwall_hi poly wall/reflect zhi EDGE
+fix				zeroforce subs setforce 0 0 0
+
+minimize		1.0e-10 1.0e-10 100000 10000000
+
+write_data		data_min
+write_restart	restart_min
+
+velocity		all create ${T_start} 900531 dist gaussian
+
+reset_timestep  0
+
+pair_coeff      1 3 lj/cut 0.745 1.0 2.5
+pair_coeff      1 4 lj/cut 0.745 1.0 2.5
+pair_coeff      2 3 lj/cut 0.745 1.0 2.5
+pair_coeff      2 4 lj/cut 0.745 1.0 2.5
+
+timestep		0.006
+
+fix				bal all balance 100000 1.1 rcb out balancing
+fix				zeromomentum poly momentum 100 linear 1 1 1
+
+dump			simple all custom 10000 dump.* id mol type x y z 
+
+fix             1 poly nvt temp ${T_start} ${T_end} ${T_damp}
+
+thermo_style	custom step temp press ke pe epair ebond pxx pyy pzz vol density
+thermo          100 
+
+run				1000000
+
+unfix			1
+unfix			zeromomentum
+
+write_data		data_preequil
+write_restart	restart_preequil
+
+print "All done"
