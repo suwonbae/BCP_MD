@@ -64,7 +64,7 @@ class LMPscript:
     def _addLine(self, line: str):
         self.script.append(line)
 
-    def _convertVar(self, v_name):
+    def _convertVar(self, v_name: str) -> str:
 
         var_temp = self.var.get(v_name)
         v_type = var_temp.get("type")

@@ -12,35 +12,39 @@ def main():
     '''
     1. pure bcp film
     '''
+
+    components = {
+        0: {"N": 20, "f_A": 0.25, "n": 4800, "type_A": 1, "type_B": 2},
+        #1: {"N": 22, "f_A": 0.5, "n": 4364, "type_A": 3, "type_B": 4},
+        }
+
     # read in data (by self-avoiding random walk)
-    data = LammpsData("data_C20n2400_wo_substate.txt")
+    #data = LammpsData("data_C20n2400_wo_substate.txt")
 
     # generate a layer
-    layer = Layer(data, film_types=[1, 2])
+    #layer = Layer(data, film_types=[[1, 2],])
 
     # add a substrate
-    data_w_substrate = layer.add_substrate(type_A = 3, type_B = 4, ratio=0.5)
+    #data_w_substrate = layer.add_substrate(substrate_types=[3, 4], ratio=0.5)
 
     # write the new data
-    data_w_substrate.write_data("data_tuned.txt", header="lmp data file")
+    #data_w_substrate.write_data("data_tuned.txt", header="lmp data file")
 
     '''
     2. bilayer film
     '''
     # read in film(s) (already with their own substrates)
-    #data_C = LammpsData("data_C20n4800.txt")
+    data_C = LammpsData("data_C20n4800.txt")
 
     # generate layers
-    #C_top = Layer(data_C, film_types=[1, 2], substrate_types=[3, 4], res_film_types=[1, 2], res_bond_types=[1, 2, 3])
-    #C_bottom = Layer(data_C, film_types=[1, 2], substrate_types=[3, 4], res_film_types=[3, 4], res_bond_types=[4, 5, 6])
+    C_top = Layer(data_C, film_types=[1, 2], substrate_types=[3, 4], res_film_types=[1, 2], res_bond_types=[1, 2, 3])
+    C_bottom = Layer(data_C, film_types=[1, 2], substrate_types=[3, 4], res_film_types=[3, 4], res_bond_types=[4, 5, 6])
 
     # layer1 over layer2; use truediv to place one on top of the other
-    #ConC = C_top / C_bottom
+    ConC = C_top / C_bottom
 
     # write the new data
-    #ConC.write_data("data_tuned.txt", header="lmp data file of C20n4800 on C20n4800")
-
-
+    ConC.write_data("data_tuned.txt", header="lmp data file of C20n4800 on C20n4800")
 
 
 class LammpsData:
@@ -134,13 +138,10 @@ class LammpsData:
         for bond in self.bonds:
             f.write('%d\t%d\t%d\t%d\n' % (bond[0], bond[1], bond[2], bond[3]))
         f.close()
-
+        
         if self.templates:
             f = open(os.path.join("results", self.script_name), "w")
-            for line in self.templates:
-                match = re.search("read_data", line)
-                if match:
-                    line = f"read_data\t\t{output}"
+            for line in self.templates.format(output):
                 f.write(line)
             f.close()
 
@@ -150,7 +151,11 @@ class Layer:
         self.args = kwargs
         
         if "film_types" in self.args:
-            for ind, atom_type in enumerate(self.args["film_types"]):
+            types = self.args["film_types"]
+            if isinstance(types[0], list):
+                types = [j for i in self.args["film_types"] for j in i]
+
+            for ind, atom_type in enumerate(types):
                 if ind == 0:
                     logic = self.data.atoms[:,2] == atom_type
                 else:
@@ -220,23 +225,65 @@ class Layer:
         # adjust zhi of a resulting film
         data.zhi = np.max(data.atoms[:,5]) + 20
 
-        templates = []
-        flag = 0
-        f = open(os.path.join("templates", "t_welding.txt"), "r")
-        while (flag == 0):
-            line = f.readline()
-            if len(line) > 0:
-                templates.append(line)
-            else:
-                flag = 1
-        f.close()
+        pairs = []
+        types = [self.args["res_film_types"], other.args["res_film_types"]]
+        print(types)
+        for i, types_i in enumerate(types):
+            type_Ai = types_i[0]
+            type_Bi = types_i[1]
+        
+            pairs.append(f"pair_coeff\t\t\t{type_Ai} {type_Ai} lj/cut 1.0 1.0 2.5")
+            pairs.append(f"pair_coeff\t\t\t{type_Ai} {type_Bi} lj/cut 1.0 1.0 2.5")
+            pairs.append(f"pair_coeff\t\t\t{type_Bi} {type_Bi} lj/cut 1.0 1.0 2.5")
 
-        data.templates = templates
+            for j, types_j in enumerate(types):
+                type_Aj = types_j[0]
+                type_Bj = types_j[1]
+
+                if j > i:
+                    pairs.append(f"pair_coeff\t\t\t{type_Ai} {type_Aj} lj/cut 1.0 1.0 2.5")
+                    pairs.append(f"pair_coeff\t\t\t{type_Ai} {type_Bj} lj/cut 1.0 1.0 2.5")
+                    pairs.append(f"pair_coeff\t\t\t{type_Bi} {type_Aj} lj/cut 1.0 1.0 2.5")
+                    pairs.append(f"pair_coeff\t\t\t{type_Bi} {type_Bj} lj/cut 1.0 1.0 2.5")
+            
+        substrate_types = [np.max(types) + 1, np.max(types) + 2]
+        for types in [self.args["res_film_types"], other.args["res_film_types"]]:
+            type_A = types[0]
+            type_B = types[1]
+        
+            for tp in substrate_types:
+                pairs.append(f"pair_coeff\t\t\t{type_A} {tp} lj/cut 1.0 1.0 2.5")
+                pairs.append(f"pair_coeff\t\t\t{type_B} {tp} lj/cut 1.0 1.0 2.5")
+
+        pairs.append("\n")
+
+        groups = []
+        poly = []
+        for types in [self.args["res_film_types"], other.args["res_film_types"]]:
+            poly.append(str(types[0]))
+            poly.append(str(types[1]))
+        
+        bottom = [str(tp) for tp in self.args["res_film_types"]]
+        top = [str(tp) for tp in other.args["res_film_types"]]
+
+        subs = [str(tp) for tp in substrate_types]
+        
+        groups.append(f"group\t\t\ttop type {' '.join(top)}")
+        groups.append(f"group\t\t\tbottom type {' '.join(bottom)}")
+        groups.append(f"group\t\t\tpoly type {' '.join(poly)}")
+        groups.append(f"group\t\t\tsubs type {' '.join(subs)}")
+
+        data.templates = t_w_1 + "\n".join(pairs) + "\n".join(groups) + t_w_2 
         data.script_name = "in.welding.txt"
 
         return data
 
-    def add_substrate(self, type_A=3, type_B=4, ratio=0.5):
+    def add_substrate(self, substrate_types=[3, 4], ratio=0.5):
+
+        
+        #TODO: sDSA, grapho
+        mode = None
+        #
 
         data = LammpsData()
         data.xlo = self.data.xlo
@@ -245,6 +292,10 @@ class Layer:
         data.yhi = self.data.yhi
         data.zlo = self.data.zlo
         data.zhi = self.data.zhi
+
+        self.substrate_types = substrate_types
+        type_A = substrate_types[0]
+        type_B = substrate_types[1]
 
         lx = self.data.xhi - self.data.xlo
         ly = self.data.yhi - self.data.ylo
@@ -267,25 +318,66 @@ class Layer:
         [coords[:,2], count_A, count_B] = self._det_type(type_A, type_B, rn)
 
         data.num_atoms = self.film.shape[0] + num_subsbeads
-        data.num_atomtypes = len(self.args["film_types"]) + 2
+        data.num_atomtypes = len([j for i in self.args["film_types"] for j in i]) + len(substrate_types)
         data.atoms = np.row_stack((self.film, coords))
 
         data.num_bonds = self.bonds.shape[0]
         data.num_bondtypes = len(np.unique(self.bonds[:,1]))
         data.bonds = self.bonds
 
-        templates = []
-        flag = 0
-        f = open(os.path.join("templates", "t_glue.txt"), "r")
-        while (flag == 0):
-            line = f.readline()
-            if len(line) > 0:
-                templates.append(line)
-            else:
-                flag = 1
-        f.close()
+        pairs = []
+        for i, types_i in enumerate(self.args["film_types"]):
+            type_Ai = types_i[0]
+            type_Bi = types_i[1]
+        
+            pairs.append(f"pair_coeff\t\t\t{type_Ai} {type_Ai} lj/cut 1.0 1.0 2.5")
+            pairs.append(f"pair_coeff\t\t\t{type_Ai} {type_Bi} lj/cut 1.0 1.0 2.5")
+            pairs.append(f"pair_coeff\t\t\t{type_Bi} {type_Bi} lj/cut 1.0 1.0 2.5")
 
-        data.templates = templates
+            for j, types_j in enumerate(self.args["film_types"]):
+                type_Aj = types_j[0]
+                type_Bj = types_j[1]
+
+                if j > i:
+                    pairs.append(f"pair_coeff\t\t\t{type_Ai} {type_Aj} lj/cut 1.0 1.0 2.5")
+                    pairs.append(f"pair_coeff\t\t\t{type_Ai} {type_Bj} lj/cut 1.0 1.0 2.5")
+                    pairs.append(f"pair_coeff\t\t\t{type_Bi} {type_Aj} lj/cut 1.0 1.0 2.5")
+                    pairs.append(f"pair_coeff\t\t\t{type_Bi} {type_Bj} lj/cut 1.0 1.0 2.5")
+            
+        for types in self.args["film_types"]:
+            type_A = types[0]
+            type_B = types[1]
+        
+            for tp in self.substrate_types:
+                pairs.append(f"pair_coeff\t\t\t{type_A} {tp} lj/cut 1.0 1.0 2.5")
+                pairs.append(f"pair_coeff\t\t\t{type_B} {tp} lj/cut 1.0 1.0 2.5")
+
+        pairs.append("\n")
+
+        pairs_mod = []
+        pairs_mod.append("\n")
+        for types in self.args["film_types"]:
+            type_A = types[0]
+            type_B = types[1]
+        
+            for tp in self.substrate_types:
+                pairs_mod.append(f"pair_coeff\t\t\t{type_A} {tp} lj/cut 0.745 1.0 2.5")
+                pairs_mod.append(f"pair_coeff\t\t\t{type_B} {tp} lj/cut 0.745 1.0 2.5")
+
+        pairs_mod.append("\n")
+
+        groups = []
+        poly = []
+        for types in self.args["film_types"]:
+            poly.append(str(types[0]))
+            poly.append(str(types[1]))
+        
+        subs = [str(tp) for tp in self.substrate_types]
+        
+        groups.append(f"group\t\t\tpoly type {' '.join(poly)}")
+        groups.append(f"group\t\t\tsubs type {' '.join(subs)}")
+
+        data.templates = t_g_1 + "\n".join(pairs) + "\n".join(groups) + t_g_2 + "\n".join(pairs_mod) + t_g_3
         data.script_name = "in.glue.txt"
 
         return data
@@ -303,6 +395,139 @@ class Layer:
             count_A += 1
 
         return ttype, count_A, count_B
+
+t_g_1 = '''
+# lammps input file
+# Variable
+variable		T_start equal 1.2
+variable		T_end equal 1.2
+variable		T_damp equal 10.0
+
+# Initialization
+units			lj
+boundary		p p f
+atom_style		bond
+
+# Forcefield and coordinates data
+neighbor		0.3 bin
+neigh_modify	delay 0 one 2000 page 20000
+bond_style		fene
+pair_style		hybrid lj/cut 2.5
+pair_modify		shift yes 
+
+read_data		{}
+
+bond_coeff		* 30.0 1.5 1.0 1.0
+
+special_bonds	fene angle no dihedral no lj/coul 0 1 1
+
+comm_style		tiled
+
+pair_coeff      * * none
+'''
+
+t_g_2 = '''
+#####################################################
+fix             zwall_lo poly wall/reflect zlo EDGE
+fix             zwall_hi poly wall/reflect zhi EDGE
+fix				zeroforce subs setforce 0 0 0
+
+minimize		1.0e-10 1.0e-10 100000 10000000
+
+write_data		data_min
+write_restart	restart_min
+
+velocity		all create ${{T_start}} 900531 dist gaussian
+
+reset_timestep  0
+'''
+
+t_g_3 = '''
+timestep		0.006
+
+fix				bal all balance 100000 1.1 rcb out balancing
+fix				zeromomentum poly momentum 100 linear 1 1 1
+
+dump			simple all custom 10000 dump.* id mol type x y z 
+
+fix             1 poly nvt temp ${{T_start}} ${{T_end}} ${{T_damp}}
+
+thermo_style	custom step temp press ke pe epair ebond pxx pyy pzz vol density
+thermo          100 
+
+run				1000000
+
+unfix			1
+unfix			zeromomentum
+
+write_data		data_preequil
+write_restart	restart_preequil
+
+print "All done"
+'''
+
+t_w_1 = '''
+# lammps input file 
+# Variable
+variable		T_start equal 1.2
+variable		T_end equal 1.2
+variable		T_damp equal 10.0
+
+# Initialization
+units			lj
+boundary		p p f
+atom_style		bond
+
+# Forcefield and coordinates data
+neighbor		0.3 bin
+neigh_modify	delay 0 one 2000 page 20000
+bond_style		fene
+pair_style		hybrid lj/cut 2.5
+pair_modify		shift yes 
+
+read_data		{}
+
+bond_coeff		* 30.0 1.5 1.0 1.0
+
+special_bonds	fene angle no dihedral no lj/coul 0 1 1
+
+comm_style		tiled
+
+pair_coeff      * * none
+'''
+
+t_w_2 = '''
+#####################################################
+reset_timestep  0
+
+velocity		all create ${{T_start}} 900531 dist gaussian
+
+timestep		0.006
+
+fix				zwall_lo poly wall/reflect zlo EDGE
+fix				zwall_hi poly wall/reflect zhi EDGE
+fix				bal all balance 100000 1.1 rcb out balancing
+fix				zeroforce subs setforce 0 0 0
+fix				zeroforce bottom setforce 0 0 0
+fix				zeromomentum poly momentum 100 linear 1 1 1
+
+dump			simple all custom 10000 dump.* id mol type x y z 
+
+fix				1 top nvt temp ${{T_start}} ${{T_end}} ${{T_damp}}
+
+thermo_style	custom step temp press ke pe epair ebond pxx pyy pzz vol density
+thermo			100 
+
+run				100000
+
+unfix			1
+unfix			zeromomentum
+
+write_data		data_preequil
+write_restart	restart_preequil
+
+print "All done"
+'''
 
 if __name__ == "__main__":
     main()
