@@ -96,7 +96,7 @@ int main() {
 	fscanf(fparams, "%s %d\n", dummy, &num_components);
 	for (int i = 0; i < num_components; i++) {
 		components = grow <float> (components, line + 1, 5);
-		fscanf(fparams, "%s %s %s %f %f %f %f %f\n", dummy, dummy, dummy, &components[line][0], &components[line][1], &components[line][2], &components[line][3], &components[line][4]);
+		fscanf(fparams, "%s %s %s %s %s %f %f %f %f %f\n", dummy, dummy, dummy, dummy, dummy, &components[line][0], &components[line][1], &components[line][2], &components[line][3], &components[line][4]);
 
 		std::vector<int>::iterator it;
 		for (int j = 0; j < 2; j++) {

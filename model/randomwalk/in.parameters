@@ -1,5 +1,5 @@
 components 1
-N f_A n 20 0.25 1 2 2400
+N f_A A B n 20 0.25 1 2 2400
 xlo xhi 0 57.0
 ylo yhi 0 90.0
 zlo zhi 0 20.0
