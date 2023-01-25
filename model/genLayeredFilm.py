@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import numpy as np
 import re
 import subprocess
@@ -10,6 +12,30 @@ def main():
         os.makedirs('results')
 
     '''
+    If the corresponding data file exists, read it in.
+    Otherwise, call a randomwalk function to generate a data file.
+
+    In this, I will specify what types of beads construct polymer chains and substrates,
+    meaning that I do not have to keep mentioning bead types every time.
+
+    However, when I read in a data file, it is not easy to tell right away identify whether
+    the model has a substrate or not (Maybe can have this info in every data file or in DB).
+
+    When generating a randomwalk model, I need the following information:
+    how many components, N, f_A, A, B, n, xlo, xhi, ylo, yhi, zlo, zhi, bc_x, bc_y, bc_z
+    
+    model = {
+        components: {
+            0: {"N": 20, "f_A": 0.25, "n": 4800, "type_A": 1, "type_B": 2},
+            #1: {"N": 22, "f_A": 0.5, "n": 4364, "type_A": 3, "type_B": 4},
+        },
+        substrate: {},
+        box: {"xlo": 0.0, "xhi": 90.0, "ylo": 0.0, "yhi": 57.0, "zlo": 0, "zhi": 20.0},
+        bc: {"x": "p", "y": "p", "z": "f"}
+    }
+    '''
+
+    '''
     1. pure bcp film
     '''
 
@@ -20,6 +46,7 @@ def main():
 
     # read in data (by self-avoiding random walk)
     #data = LammpsData("data_C20n2400_wo_substate.txt")
+    #data.probe()
 
     # generate a layer
     #layer = Layer(data, film_types=[[1, 2],])
@@ -35,7 +62,8 @@ def main():
     '''
     # read in film(s) (already with their own substrates)
     data_C = LammpsData("data_C20n4800.txt")
-
+    data_C.probe()
+    
     # generate layers
     C_top = Layer(data_C, film_types=[1, 2], substrate_types=[3, 4], res_film_types=[1, 2], res_bond_types=[1, 2, 3])
     C_bottom = Layer(data_C, film_types=[1, 2], substrate_types=[3, 4], res_film_types=[3, 4], res_bond_types=[4, 5, 6])
@@ -102,13 +130,61 @@ class LammpsData:
         
     def probe(self):
 
-        chain = self.atoms[self.atoms[:,1] == 1]
-        types = np.unique(chain[:,2].astype(int))
-        blocks = []
-        for t in types:
-            block = chain[chain[:,2] == t]
-            blocks.append('-'.join([str(i) for i in block[:,2].astype(int)]))
-        print('~'.join(blocks))
+        components = {}
+
+        trj = self.atoms
+
+        mol_ids = np.unique(trj[:,1])
+        mols = np.empty(len(mol_ids))
+
+        for mol_ind, mol_id in enumerate(mol_ids):
+            mol = trj[trj[:,1] == mol_id]
+            types = np.unique(mol[:,2]).astype(int)
+
+            N = mol.shape[0]
+            N_A = mol[mol[:,2] == types[0]].shape[0]
+            f_A = N_A/N
+
+            if len(components) == 0:
+                ind = len(components)
+                components.update({
+                    ind: {'N': N, 'f_A': f_A, 'type_A': types[0], 'type_B': types[1], 'n': 0}
+                    })
+                mols[mol_ind] = ind
+
+            flag = 0
+            for key in components:
+                component = components.get(key)
+                if (component['N'] == N and component['f_A'] == f_A and component['type_A'] == types[0] and component['type_B'] == types[1]):
+                    mols[mol_ind] = key
+                    component.update({'n': component.get('n') + 1})
+                    flag = 1
+                    break
+
+            if flag == 0:
+                ind = len(components)
+                components.update({
+                    ind: {'N': N, 'f_A': f_A, 'type_A': types[0], 'type_B': types[1], 'n': 1}
+                    })
+                mols[mol_ind] = ind
+
+        for key in components:
+            component = components.get(key)
+            blocks = []
+            
+            if component['N'] < 100:
+
+                blocks.append('-'.join(['A' for _ in range(int(component['N']*component['f_A']))]))
+                blocks.append('-'.join(['B' for _ in range(int(component['N']*(1-component['f_A'])))]))
+            
+                print(f"** component {key}")
+                print(f"* {component}")
+                print(f"* structure: {'~'.join(blocks)}")
+
+            else:
+                self.has_substrate = True
+
+        self.components = components
 
     def write_data(self, output='data_result.txt', header=None):
 
@@ -149,6 +225,7 @@ class Layer:
     def __init__(self, data, **kwargs):
         self.data = data
         self.args = kwargs
+        self.has_substrate = False
         
         if "film_types" in self.args:
             types = self.args["film_types"]
@@ -169,6 +246,7 @@ class Layer:
                 else:
                     logic = np.logical_or(logic, self.data.atoms[:,2] == substrate_type)
             self.substrate = self.data.atoms[logic].copy()
+            self.has_substrate = True
 
         self.bonds = self.data.bonds.copy()
 
@@ -176,6 +254,8 @@ class Layer:
         '''
         self on top of other; self over other; self / other
         '''
+        # TODO: change the return type to Layer
+
         data = LammpsData()
         data.xlo = self.data.xlo
         data.xhi = self.data.xhi
