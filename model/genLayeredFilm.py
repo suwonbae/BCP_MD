@@ -11,13 +11,14 @@ class LammpsData:
 
     '''Lammps data'''
     def __init__(self, fname=None):
+
+        self.has_substrate = False
+        self.templates = None
+
         if fname is not None:
             self.fname = os.path.join("ingredients", fname)
             self.read_data()
-            self.has_substrate = False
-
             self.probe()
-            self.templates = None
 
     def read_data(self):
         '''
@@ -61,9 +62,11 @@ class LammpsData:
 
         self.atoms = np.loadtxt("atoms.txt", skiprows=2)
         self.atoms = self.atoms[np.argsort(self.atoms[:,0])]
+        self._atoms = self.atoms.copy()
 
         self.bonds = np.loadtxt("bonds.txt", skiprows=2)
         self.bonds = self.bonds[np.argsort(self.bonds[:,2])]
+        self._bonds = self.bonds.copy()
 
         os.remove("atoms.txt")
         os.remove("bonds.txt")
@@ -71,7 +74,6 @@ class LammpsData:
     def probe(self):
 
         components = {}
-        substrate = {}
 
         trj = self.atoms
 
@@ -162,86 +164,95 @@ class LammpsData:
                 component.update({'bond_types': bond_types})
 
         if self.has_substrate:
-            substrate.update(components.get(key_substrate))
+            components.update({'substrate': components.get(key_substrate)})
             components.pop(key_substrate)
 
         self.components = components
-        self.substrate = substrate
 
 
     def tailor(self, component_key, **kwargs):
         
         component = self.components.get(component_key)
 
-        if 'block_types' in kwargs:
-            type_A = kwargs['block_types'].get('A')
-            type_B = kwargs['block_types'].get('B')
+        if component_key == 'substrate':
+            if 'block_types' in kwargs:
+                old_A = component.get('block_types').get('A')
+                new_A = kwargs['block_types'].get('A')
+                old_B = component.get('block_types').get('B')
+                new_B = kwargs['block_types'].get('B')
+
+                self.atoms[self._atoms[:,2] == old_A, 2] = new_A
+                self.atoms[self._atoms[:,2] == old_B, 2] = new_B
+
+            self.components[component_key].update({'block_types': {'A': new_A, 'B': new_B}})
+            self.num_atomtypes = len(np.unique(self.atoms[:,2]))
+            self.num_bondtypes = len(np.unique(self.bonds[:,1]))
+
         else:
-            type_A = component.get('block_types').get('A')
-            type_B = component.get('block_types').get('B')
+            if 'block_types' in kwargs:
+                type_A = kwargs['block_types'].get('A')
+                type_B = kwargs['block_types'].get('B')
+            else:
+                type_A = component.get('block_types').get('A')
+                type_B = component.get('block_types').get('B')
 
-        if 'bond_types' in kwargs:
-            type_AA = kwargs['bond_types'].get('AA')
-            type_AB = kwargs['bond_types'].get('AB')
-            type_BB = kwargs['bond_types'].get('BB')
-        else:
-            type_AA = component.get('bond_types').get('AA')
-            type_AB = component.get('bond_types').get('AA')
-            type_BB = component.get('bond_types').get('BB')
+            if 'bond_types' in kwargs:
+                type_AA = kwargs['bond_types'].get('AA')
+                type_AB = kwargs['bond_types'].get('AB')
+                type_BB = kwargs['bond_types'].get('BB')
+            else:
+                type_AA = component.get('bond_types').get('AA')
+                type_AB = component.get('bond_types').get('AA')
+                type_BB = component.get('bond_types').get('BB')
 
-        if 'f_A' in kwargs:
-            f_A = kwargs['f_A']
-        else:
-            f_A = component.get('f_A')
+            if 'f_A' in kwargs:
+                f_A = kwargs['f_A']
+            else:
+                f_A = component.get('f_A')
+    
+            N = component.get('N')
+    
+            
+            if ('block_types' in kwargs) or ('bond_types' in kwargs) or ('f_A' in kwargs):
 
-        N = component.get('N')
+                mol_ids = self.mol_ids[self.mols == component_key]
 
-        self._atoms = self.atoms.copy()
-        self._bonds = self.bonds.copy()
-        if ('block_types' in kwargs) or ('bond_types' in kwargs) or ('f_A' in kwargs):
+                temp_types = np.concatenate((np.ones(int(N*f_A))*type_A, np.ones(int(N*(1-f_A)))*type_B))
 
-            mol_ids = self.mol_ids[self.mols == component_key]
+                for mol_ind, mol_id in enumerate(mol_ids):
+                    self.atoms[self._atoms[:,1] == mol_id, 2] = temp_types
 
-            temp_types = np.concatenate((np.ones(int(N*f_A))*type_A, np.ones(int(N*(1-f_A)))*type_B))
+                    mol = self.atoms[self._atoms[:,1] == mol_id]
 
-            for mol_ind, mol_id in enumerate(mol_ids):
-                self._atoms[self.atoms[:,1] == mol_id, 2] = temp_types
-
-                mol = self._atoms[self.atoms[:,1] == mol_id]
-
-                for atom_ind in range(mol.shape[0]-1):
-                    atom_1 = mol[atom_ind, 0]
-                    atom_2 = mol[atom_ind + 1, 0]
+                    for atom_ind in range(mol.shape[0]-1):
+                        atom_1 = mol[atom_ind, 0]
+                        atom_2 = mol[atom_ind + 1, 0]
                 
-                    # method 1)
-                    #cond_1 = np.argwhere(self.bonds[:,2] == atom_1)
-                    #cond_2 = np.argwhere(self.bonds[:,3] == atom_2)
-                    #bond_ind = np.intersect1d(cond_1, cond_2).astype(int)[0]
+                        # method 1)
+                        #cond_1 = np.argwhere(self._bonds[:,2] == atom_1)
+                        #cond_2 = np.argwhere(self._bonds[:,3] == atom_2)
+                        #bond_ind = np.intersect1d(cond_1, cond_2).astype(int)[0]
 
-                    # method 2)
-                    bond_ind = np.argwhere(self.bonds[:,2] == atom_1).astype(int)[0]
+                        # method 2)
+                        bond_ind = np.argwhere(self._bonds[:,2] == atom_1).astype(int)[0]
                     
-                    # method 3)
-                    #bond_ind = (N-1) * mol_ind + atom_ind
-                    #print(bond_ind)
+                        # method 3)
+                        #bond_ind = (N-1) * mol_ind + atom_ind
 
-                    if mol[atom_ind, 2] == type_A and mol[atom_ind + 1, 2] == type_A:
-                        self._bonds[bond_ind, 1] = type_AA
+                        if mol[atom_ind, 2] == type_A and mol[atom_ind + 1, 2] == type_A:
+                            self.bonds[bond_ind, 1] = type_AA
 
-                    if mol[atom_ind, 2] == type_A and mol[atom_ind + 1, 2] == type_B:
-                        self._bonds[bond_ind, 1] = type_AB
+                        if mol[atom_ind, 2] == type_A and mol[atom_ind + 1, 2] == type_B:
+                            self.bonds[bond_ind, 1] = type_AB
 
-                    if mol[atom_ind, 2] == type_B and mol[atom_ind + 1, 2] == type_B:
-                        self._bonds[bond_ind, 1] = type_BB
+                        if mol[atom_ind, 2] == type_B and mol[atom_ind + 1, 2] == type_B:
+                            self.bonds[bond_ind, 1] = type_BB
                     
-        self.atoms = self._atoms
-        self.bonds = self._bonds
-        self.components[component_key].update({'f_A': f_A})
-        self.components[component_key].update({'block_types': {'A': type_A, 'B': type_B}})
-        self.components[component_key].update({'bond_types': {'AA': type_AA, 'AB': type_AB, 'BB': type_BB}})
-        self.num_atomtypes = len(np.unique(self.atoms[:,2]))
-        self.num_bondtypes = len(np.unique(self.bonds[:,1]))
-
+            self.components[component_key].update({'f_A': f_A})
+            self.components[component_key].update({'block_types': {'A': type_A, 'B': type_B}})
+            self.components[component_key].update({'bond_types': {'AA': type_AA, 'AB': type_AB, 'BB': type_BB}})
+            self.num_atomtypes = len(np.unique(self.atoms[:,2]))
+            self.num_bondtypes = len(np.unique(self.bonds[:,1]))
 
 
     def write(self, output='data_result.txt', header=None):
@@ -301,33 +312,34 @@ class Layer:
             components.update({blend[0]: sub_components})
             self.data.components = components
 
-
         types = []
         bond_types = []
         substrate_types = {}
 
-        for c_ind, component_key in enumerate(self.data.components):
+        for component_key in self.data.components:
             component = self.data.components.get(component_key)
 
-            if isinstance(component, list):
-                # blend
-                for sub_component in component:
-                    types.append(sub_component.get('block_types'))
-                    bond_types.append(sub_component.get('bond_types'))
+            if component_key != 'substrate':
+                if isinstance(component, list):
+                    # blend
+                    for sub_component in component:
+                        types.append(sub_component.get('block_types'))
+                        bond_types.append(sub_component.get('bond_types'))
 
-            elif isinstance(component, dict):
-                # pure
-                # a layer could be a layered film
-                types.append(component.get('block_types'))
-                bond_types.append(component.get('bond_types'))
+                elif isinstance(component, dict):
+                    # pure
+                    # a layer could be a layered film
+                    types.append(component.get('block_types'))
+                    bond_types.append(component.get('bond_types'))
 
-        if self.data.substrate:
+        if self.data.has_substrate:
             # substrate
 
-            substrate_types.update(self.data.substrate.get('block_types'))
+            substrate_types.update(self.data.components.get('substrate').get('block_types'))
 
         self.types = types
         self.bond_types = bond_types
+        print('hi', types)
 
         for ind, atom_type in enumerate(types):
             if ind == 0:
@@ -344,12 +356,12 @@ class Layer:
 
         self.film = self.data.atoms[logic].copy()
             
-        if self.data.substrate:
+        if self.data.has_substrate:
 
             self.substrate_types = substrate_types
 
-            logic_A = self.data.atoms[:,2] == self.data.substrate.get('block_types').get('A')
-            logic_B = self.data.atoms[:,2] == self.data.substrate.get('block_types').get('B')
+            logic_A = self.data.atoms[:,2] == self.data.components.get('substrate').get('block_types').get('A')
+            logic_B = self.data.atoms[:,2] == self.data.components.get('substrate').get('block_types').get('B')
 
             logic = np.logical_or(logic_A, logic_B)
 
@@ -362,7 +374,6 @@ class Layer:
         '''
         self on top of other; self over other; self / other
         '''
-        # TODO: change the return type to Layer
 
         data = LammpsData()
         data.xlo = self.data.xlo
@@ -374,97 +385,50 @@ class Layer:
         data.num_bonds = self.bonds.shape[0] + other.bonds.shape[0]
 
         data.num_atomtypes = len(self.types)*2 + len(other.types)*2 + len(other.substrate_types)
+        print(self.types, other.types, other.substrate_types)
         data.num_bondtypes = len(self.bond_types)*3 + len(other.bond_types)*3
 
         data.components = other.data.components
+
+        data.has_substrate = True
+
+        print('hi', data.components)
+        print('hello', self.data.components)
         offset = 0
         offset_bond = 0
         self._film = self.film.copy()
         self._bonds = self.bonds.copy()
+        
+        already_keys = [i for i in data.components.keys() if isinstance(i, int)]
+
         for component_key in self.data.components:
             component = self.data.components.get(component_key)
 
-            if isinstance(component, list):
-                # blend
-                for sub_component in component:
-                    old_A = sub_component.get('block_types').get('A')
-                    old_B = sub_component.get('block_types').get('B')
-                    new_A = len(other.types)*2 + offset + 1
-                    new_B = len(other.types)*2 + offset + 2
-                    sub_component.update({'block_types': {'A': new_A, 'B': new_B}})
-                    
-                    self._film[self.film[:,2] == old_A, 2] = new_A
-                    self._film[self.film[:,2] == old_B, 2] = new_B
+            if component_key != 'substrate':
+                data.components.update({len(already_keys): component})
 
-                    old_AA = sub_component.get('bond_types').get('AA')
-                    old_AB = sub_component.get('bond_types').get('AB')
-                    old_BB = sub_component.get('bond_types').get('BB')
-                    new_AA = len(other.bond_types)*3 + offset_bond + 1 
-                    new_AB = len(other.bond_types)*3 + offset_bond + 3
-                    new_BB = len(other.bond_types)*3 + offset_bond + 2
+        print(other.substrate.shape)
+        #old_A = other.substrate_types.get('A')
+        #new_A = len(other.types)*2 + len(self.types)*2 + 1
+        #old_B = other.substrate_types.get('B')
+        #new_B = len(other.types)*2 + len(self.types)*2 + 2
+        #print(old_A, new_A, old_B, new_B)
+        #other.data.substrate.update({'block_types': {'A': new_A, 'B': new_B}})
+        #other.substrate[other.substrate[:,2] == old_A, 2] = new_A
+        #other.substrate[other.substrate[:,2] == old_B, 2] = new_B
+        print(other.substrate.shape)
 
-                    sub_component.update({'bond_types': {'AA': new_AA, 'AB': new_AB, 'BB': new_BB}})
+        self.film[:,0] += max(other.film[:,0])
+        self.film[:,1] += max(other.film[:,1])
+        self.film[:,5] += max(other.film[:,5])
+        other.substrate[:,0] = np.linspace(1, other.substrate.shape[0], other.substrate.shape[0]).astype(int) + max(self.film[:,0])
+        other.substrate[:,1] = max(self.film[:,1]) + 1
 
-                    self._bonds[self.bonds[:,1] == old_AA, 1] = new_AA
-                    self._bonds[self.bonds[:,1] == old_AB, 1] = new_AB
-                    self._bonds[self.bonds[:,1] == old_BB, 1] = new_BB
+        data.atoms = np.row_stack((other.film, self.film, other.substrate))
 
-                    offset += 2
-                    offset_bond += 3
-
-            elif isinstance(component, dict):
-                # pure
-                # a layer could be a layered film
-                print('pure')
-                old_A = component.get('block_types').get('A')
-                old_B = component.get('block_types').get('B')
-                new_A = len(other.types)*2 + offset + 1
-                new_B = len(other.types)*2 + offset + 2
-
-                component.update({'block_types': {'A': new_A, 'B': new_B}})
-                    
-                self._film[self.film[:,2] == old_A, 2] = new_A
-                self._film[self.film[:,2] == old_B, 2] = new_B
-
-                old_AA = component.get('bond_types').get('AA')
-                old_AB = component.get('bond_types').get('AB')
-                old_BB = component.get('bond_types').get('BB')
-                new_AA = len(other.bond_types)*3 + offset_bond + 1 
-                new_AB = len(other.bond_types)*3 + offset_bond + 3
-                new_BB = len(other.bond_types)*3 + offset_bond + 2
-
-                component.update({'bond_types': {'AA': new_AA, 'AB': new_AB, 'BB': new_BB}})
-
-                self._bonds[self.bonds[:,1] == old_AA, 1] = new_AA
-                self._bonds[self.bonds[:,1] == old_AB, 1] = new_AB
-                self._bonds[self.bonds[:,1] == old_BB, 1] = new_BB
-
-                offset += 2
-                offset_bond += 3
-
-            data.components.update({len(data.components): component})
-            self.data.components.update({component_key: component})
-                
-        old_A = other.substrate_types.get('A')
-        new_A = len(other.types)*2 + offset + 1
-        old_B = other.substrate_types.get('B')
-        new_B = len(other.types)*2 + offset + 2
-        other.data.substrate.update({'block_types': {'A': new_A, 'B': new_B}})
-        other.substrate[other.substrate[:,2] == old_A, 2] = new_A
-        other.substrate[other.substrate[:,2] == old_B, 2] = new_B
-        data.substrate = other.data.substrate
-
-        self._film[:,0] += max(other.film[:,0])
-        self._film[:,1] += max(other.film[:,1])
-        self._film[:,5] += max(other.film[:,5])
-        other.substrate[:,0] = np.linspace(1, other.substrate.shape[0], other.substrate.shape[0]).astype(int) + max(self._film[:,0])
-        other.substrate[:,1] = max(self._film[:,1]) + 1
-
-        data.atoms = np.row_stack((other.film, self._film, other.substrate))
-
-        self._bonds[:,0] += max(other.bonds[:,0])
-        self._bonds[:,2:] += max(other.film[:,0])
-        data.bonds = np.row_stack((other.bonds, self._bonds))
+        self.bonds[:,0] += max(other.bonds[:,0])
+        self.bonds[:,2:] += max(other.film[:,0])
+        data.bonds = np.row_stack((other.bonds, self.bonds))
 
         layer = Layer(data)
 
@@ -472,35 +436,8 @@ class Layer:
         data.zhi = np.max(data.atoms[:,5]) + 20
 
         pairs = []
-        for i, types_i in enumerate(layer.types):
-            type_Ai = types_i.get('A')
-            type_Bi = types_i.get('B')
-        
-            pairs.append(f"pair_coeff\t\t\t{type_Ai} {type_Ai} lj/cut 1.0 1.0 2.5")
-            pairs.append(f"pair_coeff\t\t\t{type_Ai} {type_Bi} lj/cut 1.0 1.0 2.5")
-            pairs.append(f"pair_coeff\t\t\t{type_Bi} {type_Bi} lj/cut 1.0 1.0 2.5")
-
-            for j, types_j in enumerate(layer.types):
-                type_Aj = types_j.get('A')
-                type_Bj = types_j.get('B')
-
-                if j > i:
-                    pairs.append(f"pair_coeff\t\t\t{type_Ai} {type_Aj} lj/cut 1.0 1.0 2.5")
-                    pairs.append(f"pair_coeff\t\t\t{type_Ai} {type_Bj} lj/cut 1.0 1.0 2.5")
-                    pairs.append(f"pair_coeff\t\t\t{type_Bi} {type_Aj} lj/cut 1.0 1.0 2.5")
-                    pairs.append(f"pair_coeff\t\t\t{type_Bi} {type_Bj} lj/cut 1.0 1.0 2.5")
-            
-        for types in layer.types:
-            type_A = types.get('A')
-            type_B = types.get('B')
-        
-            tp_A = layer.substrate_types.get('A')
-            tp_B = layer.substrate_types.get('B')
-            pairs.append(f"pair_coeff\t\t\t{type_A} {tp_A} lj/cut 0.745 1.0 2.5")
-            pairs.append(f"pair_coeff\t\t\t{type_B} {tp_A} lj/cut 0.745 1.0 2.5")
-            pairs.append(f"pair_coeff\t\t\t{type_A} {tp_B} lj/cut 0.745 1.0 2.5")
-            pairs.append(f"pair_coeff\t\t\t{type_B} {tp_B} lj/cut 0.745 1.0 2.5")
-        
+        pairs = layer._det_pair_film_film(pairs)
+        pairs = layer._det_pair_film_substrate(pairs, e_AA=0.745, e_AB=0.745, e_BB=0.745)
         pairs.append("\n")
 
         groups = []
@@ -517,20 +454,19 @@ class Layer:
 
         for component_key in self.data.components:
             component = self.data.components.get(component_key)
-            if isinstance(component, list):
-                for sub_component in component:
-                    top.append(str(sub_component.get('block_types').get('A')))
-                    top.append(str(sub_component.get('block_types').get('B')))
 
-            else:
-                top.append(str(component.get('block_types').get('A')))
-                top.append(str(component.get('block_types').get('B')))
+            if component_key != 'substrate':
+                if isinstance(component, list):
+                    for sub_component in component:
+                        top.append(str(sub_component.get('block_types').get('A')))
+                        top.append(str(sub_component.get('block_types').get('B')))
+
+                else:
+                    top.append(str(component.get('block_types').get('A')))
+                    top.append(str(component.get('block_types').get('B')))
 
         subs = [str(tp) for tp in layer.substrate_types.values()]
         
-        groups.append(f"group\t\t\tpoly type {' '.join(poly)}")
-        groups.append(f"group\t\t\tsubs type {' '.join(subs)}")
- 
         groups.append(f"group\t\t\ttop type {' '.join(top)}")
         groups.append(f"group\t\t\tbottom type {' '.join(bottom)}")
         groups.append(f"group\t\t\tpoly type {' '.join(poly)}")
@@ -583,50 +519,12 @@ class Layer:
         self.data.bonds = self.bonds
 
         pairs = []
-        for i, types_i in enumerate(self.types):
-            type_Ai = types_i.get('A')
-            type_Bi = types_i.get('B')
-        
-            pairs.append(f"pair_coeff\t\t\t{type_Ai} {type_Ai} lj/cut 1.0 1.0 2.5")
-            pairs.append(f"pair_coeff\t\t\t{type_Ai} {type_Bi} lj/cut 1.0 1.0 2.5")
-            pairs.append(f"pair_coeff\t\t\t{type_Bi} {type_Bi} lj/cut 1.0 1.0 2.5")
-
-            for j, types_j in enumerate(self.types):
-                type_Aj = types_j.get('A')
-                type_Bj = types_j.get('B')
-
-                if j > i:
-                    pairs.append(f"pair_coeff\t\t\t{type_Ai} {type_Aj} lj/cut 1.0 1.0 2.5")
-                    pairs.append(f"pair_coeff\t\t\t{type_Ai} {type_Bj} lj/cut 1.0 1.0 2.5")
-                    pairs.append(f"pair_coeff\t\t\t{type_Bi} {type_Aj} lj/cut 1.0 1.0 2.5")
-                    pairs.append(f"pair_coeff\t\t\t{type_Bi} {type_Bj} lj/cut 1.0 1.0 2.5")
-            
-        for types in self.types:
-            type_A = types.get('A')
-            type_B = types.get('B')
-        
-            tp_A = substrate_types.get('A')
-            tp_B = substrate_types.get('B')
-            pairs.append(f"pair_coeff\t\t\t{type_A} {tp_A} lj/cut 1.0 1.0 2.5")
-            pairs.append(f"pair_coeff\t\t\t{type_B} {tp_A} lj/cut 1.0 1.0 2.5")
-            pairs.append(f"pair_coeff\t\t\t{type_A} {tp_B} lj/cut 1.0 1.0 2.5")
-            pairs.append(f"pair_coeff\t\t\t{type_B} {tp_B} lj/cut 1.0 1.0 2.5")
-
+        pairs = self._det_pair_film_film(pairs)
+        pairs = self._det_pair_film_substrate(pairs)
         pairs.append("\n")
 
         pairs_mod = []
-        pairs_mod.append("\n")
-        for types in self.types:
-            type_A = types.get('A')
-            type_B = types.get('B')
-        
-            tp_A = substrate_types.get('A')
-            tp_B = substrate_types.get('B')
-            pairs_mod.append(f"pair_coeff\t\t\t{type_A} {tp_A} lj/cut 0.745 1.0 2.5")
-            pairs_mod.append(f"pair_coeff\t\t\t{type_B} {tp_A} lj/cut 0.745 1.0 2.5")
-            pairs_mod.append(f"pair_coeff\t\t\t{type_A} {tp_B} lj/cut 0.745 1.0 2.5")
-            pairs_mod.append(f"pair_coeff\t\t\t{type_B} {tp_B} lj/cut 0.745 1.0 2.5")
-
+        pairs_mod = self._det_pair_film_substrate(pairs_mod, e_AA=0.745, e_AB=0.745, e_BB=0.745)
         pairs_mod.append("\n")
 
         groups = []
@@ -656,6 +554,76 @@ class Layer:
         ttype[A] = self.substrate_types.get('A')
         
         return ttype, sum(A), sum(B)
+
+    def _det_pair_film_film(self, pairs):
+
+        for i, types_i in enumerate(self.types):
+            type_Ai = types_i.get('A')
+            type_Bi = types_i.get('B')
+        
+            pairs.append(f"pair_coeff\t\t\t{type_Ai} {type_Ai} lj/cut 1.0 1.0 2.5")
+            pairs.append(f"pair_coeff\t\t\t{type_Ai} {type_Bi} lj/cut 1.0 1.0 2.5")
+            pairs.append(f"pair_coeff\t\t\t{type_Bi} {type_Bi} lj/cut 1.0 1.0 2.5")
+
+            for j, types_j in enumerate(self.types):
+                type_Aj = types_j.get('A')
+                type_Bj = types_j.get('B')
+
+                if j > i:
+                    type_1 = min(type_Ai, type_Aj)
+                    type_2 = max(type_Ai, type_Aj)
+                    pairs.append(f"pair_coeff\t\t\t{type_1} {type_2} lj/cut 1.0 1.0 2.5")
+
+                    type_1 = min(type_Ai, type_Bj)
+                    type_2 = max(type_Ai, type_Bj)
+                    pairs.append(f"pair_coeff\t\t\t{type_1} {type_2} lj/cut 1.0 1.0 2.5")
+
+                    type_1 = min(type_Bi, type_Aj)
+                    type_2 = max(type_Bi, type_Aj)
+                    pairs.append(f"pair_coeff\t\t\t{type_1} {type_2} lj/cut 1.0 1.0 2.5")
+
+                    type_1 = min(type_Bi, type_Bj)
+                    type_2 = max(type_Bi, type_Bj)
+                    pairs.append(f"pair_coeff\t\t\t{type_1} {type_2} lj/cut 1.0 1.0 2.5")
+
+        return pairs
+
+    
+    def _det_pair_film_substrate(self, pairs, e_AA=None, e_AB=None, e_BB=None):
+
+        if e_AA is not None:
+            e_AA = e_AA
+        else:
+            e_AA = 1.0
+
+        if e_AB is not None:
+            e_AB = e_AB
+        else:
+            e_AB = 1.0
+
+        if e_BB is not None:
+            e_BB = e_BB
+        else:
+            e_BB = 1.0
+
+        if e_AB is not None:
+            e_AB = e_AB
+        else:
+            e_AB = 1.0
+
+        for types in self.types:
+            type_A = types.get('A')
+            type_B = types.get('B')
+        
+            tp_A = self.substrate_types.get('A')
+            tp_B = self.substrate_types.get('B')
+            pairs.append(f"pair_coeff\t\t\t{type_A} {tp_A} lj/cut {e_AA} 1.0 2.5")
+            pairs.append(f"pair_coeff\t\t\t{type_B} {tp_A} lj/cut {e_AB} 1.0 2.5")
+            pairs.append(f"pair_coeff\t\t\t{type_A} {tp_B} lj/cut {e_AB} 1.0 2.5")
+            pairs.append(f"pair_coeff\t\t\t{type_B} {tp_B} lj/cut {e_BB} 1.0 2.5")
+
+        return pairs
+
 
 t_g_1 = '''# lammps input file
 # Variable
