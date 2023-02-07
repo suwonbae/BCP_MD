@@ -7,7 +7,7 @@ import os
 import math
 
 
-class LammpsData:
+class Data:
 
     '''Lammps data'''
     def __init__(self, fname=None):
@@ -16,7 +16,8 @@ class LammpsData:
         self.templates = None
 
         if fname is not None:
-            self.fname = os.path.join("ingredients", fname)
+            #self.fname = os.path.join("ingredients", fname)
+            self.fname = fname
             self.read_data()
             self.probe()
 
@@ -257,7 +258,8 @@ class LammpsData:
 
     def write(self, output='data_result.txt', header=None):
 
-        f = open(os.path.join("results", output), "w")
+        #f = open(os.path.join("results", output), "w")
+        f = open(output, "w")
         if header is not None:
             f.write(f"# {header}\n\n")
         else:
@@ -285,7 +287,9 @@ class LammpsData:
         f.close()
         
         if self.templates is not None:
-            f = open(os.path.join("results", self.script_name), "w")
+            #f = open(os.path.join("results", self.script_name), "w")
+            f = open(self.script_name, "w")
+
             for line in self.templates.format(output):
                 f.write(line)
             f.close()
@@ -375,7 +379,7 @@ class Layer:
         self on top of other; self over other; self / other
         '''
 
-        data = LammpsData()
+        data = Data()
         data.xlo = self.data.xlo
         data.xhi = self.data.xhi
         data.ylo = self.data.ylo
