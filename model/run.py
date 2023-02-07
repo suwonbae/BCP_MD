@@ -84,23 +84,23 @@ def main():
     #print(f"after adding substrate: has substrate {layer.data.has_substrate}")
     #layer.data.write("data_pure_1_result.txt")
 
-    import time
     '''
     pure bilayer
     '''
-    #data_C = LammpsData("data_pure_3.txt")
-    #data_L = LammpsData("data_pure_2.txt")
-    #print(data_C.components)
-    #print(data_L.components)
+    data_C = LammpsData("data_pure_3.txt")
+    data_L = LammpsData("data_pure_2.txt")
+    print(data_C.components)
+    print(data_L.components)
 
-    #layer_C = Layer(data_C)
-    #layer_L = Layer(data_L)
+    data_L.tailor(0, block_types={'A': 3, 'B': 4}, bond_types={'AA': 4, 'AB': 6, 'BB': 5})
+    data_L.tailor('substrate', block_types={'A': 5, 'B': 6})
 
-    #new_layer = layer_C / layer_L
-    #new_layer.data.probe()
-    #new_layer.data.tailor(0, block_types={'A': 3, 'B': 4}, bond_types={'AA': 4, 'AB': 6, 'BB': 5})
-    #new_layer.data.tailor(1, block_types={'A': 1, 'B': 2}, bond_types={'AA': 1, 'AB': 3, 'BB': 2})
-    #print(new_layer.data.components)
+    layer_C = Layer(data_C)
+    layer_L = Layer(data_L)
+
+    new_layer = layer_C / layer_L
+    print('res', new_layer.data.components)
+    new_layer.data.write("data_pure_2_result.txt")
 
     '''
     blend
@@ -119,19 +119,21 @@ def main():
     '''
     a blend on top of a blend
     '''
-    data_1 = LammpsData("data_blend_2.txt")
-    data_2 = LammpsData("data_blend_2.txt")
-    print("before layering")
-    print(data_1.components)
-    print(data_2.components)
-    layer_1 = Layer(data_1, blend=[0, 1])
-    layer_2 = Layer(data_2, blend=[0, 1])
-    new_layer = layer_1 / layer_2
-    print("after layering")
-    print(new_layer.data.components)
-    # for blend layer.data.tailor does not work
-    #new_layer.data.tailor(0, block_types={'A': 3, 'B': 4}, bond_types={'AA': 4, 'AB': 6, 'BB': 5})
-    new_layer.data.write("data_blend_2_result.txt")
+    #data_1 = LammpsData("data_blend_2.txt")
+    #data_2 = LammpsData("data_blend_2.txt")
+    #print("before layering")
+    #print(data_1.components)
+    #print(data_2.components)
+    #data_2.tailor(0, block_types={'A': 5, 'B': 6}, bond_types={'AA': 7, 'AB': 9, 'BB': 8})
+    #data_2.tailor(1, block_types={'A': 7, 'B': 8}, bond_types={'AA': 10, 'AB': 12, 'BB': 11})
+    #data_2.tailor('substrate', block_types={'A': 9, 'B': 10})
+
+    #layer_1 = Layer(data_1, blend=[0, 1])
+    #layer_2 = Layer(data_2, blend=[0, 1])
+    #new_layer = layer_1 / layer_2
+    #print("after layering")
+    #print(new_layer.data.components)
+    #new_layer.data.write("data_blend_2_result.txt")
 
 if __name__ == '__main__':
     main()

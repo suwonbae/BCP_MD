@@ -4,17 +4,21 @@ import os
 TODO: deal with the rest, decorator
 """
 def main ():
+
+    #components = {0: {'N': 20, 'f_A': 0.5, 'block_types': {'A': 3, 'B': 4}, 'n': 1800, 'bond_types': {'AA': 4, 'AB': 6, 'BB': 5}}, 'substrate': {'N': 5928, 'f_A': 0.40064102564102566, 'block_types': {'A': 5, 'B': 6}, 'n': 1}, 1: {'N': 20, 'f_A': 0.25, 'block_types': {'A': 1, 'B': 2}, 'n': 1800, 'bond_types': {'AA': 1, 'AB': 3, 'BB': 2}}}
+
     components = {
-        0: {"N": 20, "f_A": 0.25, "n": 4800, "type_A": 1, "type_B": 2},
-        #1: {"N": 22, "f_A": 0.5, "n": 4364, "type_A": 3, "type_B": 4},
-        }
+            0: [{'N': 20, 'f_A': 0.5, 'block_types': {'A': 3, 'B': 4}, 'n': 1800, 'bond_types': {'AA': 4, 'AB': 6, 'BB': 5}},
+                {'N': 20, 'f_A': 0.25, 'block_types': {'A': 1, 'B': 2}, 'n': 1800, 'bond_types': {'AA': 1, 'AB': 3, 'BB': 2}}],
+            'substrate': {'N': 5928, 'f_A': 0.40064102564102566, 'block_types': {'A': 5, 'B': 6}, 'n': 1},
+            }
 
     script = LMPscript()
     script.addVariables("index", sim=0, T_start=1.2, T_end=1.2, T_damp=10.0)
     script.addVariables("equal", alpha=1.0, epsilon_AB=0.5, Gamma=0.4)
 
     script.addComponents(components)
-    script.addSubstrate(types = [3, 4])
+    #script.addSubstrate(types = [3, 4])
     script.set_timestep(0.006)
 
     script.setBC(x='p', y='p', z='f')
@@ -55,8 +59,36 @@ class LMPscript:
     def addComponents(self, components):
         self.components.update(components)
 
-    def addSubstrate(self, types):
-        self.substrate.update({"types": types})
+        types = []
+        bond_types = []
+        substrate_types = {}
+
+        for component_key in components:
+            component = self.components.get(component_key)
+
+            if component_key != 'substrate':
+                if isinstance(component, list):
+                    # blend
+                    for sub_component in component:
+                        types.append(sub_component.get('block_types'))
+                        bond_types.append(sub_component.get('bond_types'))
+
+                elif isinstance(component, dict):
+                    # pure
+                    # a layer could be a layered film
+                    types.append(component.get('block_types'))
+                    bond_types.append(component.get('bond_types'))
+
+        if 'substrate' in components.keys():
+            # substrate
+
+            substrate_types.update(components.get('substrate').get('block_types'))
+
+        self.types =  types
+        self.bond_types = bond_types
+        self.substrate_types = substrate_types
+
+
 
     def set_timestep(self, timestep):
         self.timestep = timestep
@@ -103,50 +135,65 @@ class LMPscript:
         self._addLine("")
         self._addLine("special_bonds\t\tfene angle no dihedral no lj/coul 0 1 1")
         self._addLine("")
-        for ind, component in enumerate(self.components):
-            self._addLine(f"bond_coeff\t\t\t{1+ind*3} 30.0 1.5 ${{epsilon_AA}} 1.0")
-            self._addLine(f"bond_coeff\t\t\t{2+ind*3} 30.0 1.5 ${{epsilon_BB}} 1.0")
-            self._addLine(f"bond_coeff\t\t\t{3+ind*3} 30.0 1.5 ${{epsilon_AB}} 1.0")
+        for ind, types in enumerate(self.bond_types):
+            self._addLine(f"bond_coeff\t\t\t{types.get('AA')} 30.0 1.5 ${{epsilon_AA}} 1.0")
+            self._addLine(f"bond_coeff\t\t\t{types.get('AB')} 30.0 1.5 ${{epsilon_AB}} 1.0")
+            self._addLine(f"bond_coeff\t\t\t{types.get('BB')} 30.0 1.5 ${{epsilon_BB}} 1.0")
 
         self._addLine("")
         self._addLine("pair_coeff\t\t\t* * none")
-        for i, key_i in enumerate(self.components):
-            comp_i = self.components.get(key_i)
-            type_Ai = comp_i.get("type_A")
-            type_Bi = comp_i.get("type_B")
+
+
+        for i, types_i in enumerate(self.types):
+            type_Ai = types_i.get('A')
+            type_Bi = types_i.get('B')
+        
             self._addLine(f"pair_coeff\t\t\t{type_Ai} {type_Ai} lj/cut ${{epsilon_AA}} 1.0 2.5")
             self._addLine(f"pair_coeff\t\t\t{type_Ai} {type_Bi} lj/cut ${{epsilon_AB}} 1.0 2.5")
             self._addLine(f"pair_coeff\t\t\t{type_Bi} {type_Bi} lj/cut ${{epsilon_BB}} 1.0 2.5")
 
-            for j, key_j in enumerate(self.components):
-                comp_j = self.components.get(key_j)
-                type_Aj = comp_j.get("type_A")
-                type_Bj = comp_j.get("type_B")
+            for j, types_j in enumerate(self.types):
+                type_Aj = types_j.get('A')
+                type_Bj = types_j.get('B')
 
                 if j > i:
-                    self._addLine(f"pair_coeff\t\t\t{type_Ai} {type_Aj} lj/cut ${{epsilon_AA}} 1.0 2.5")
-                    self._addLine(f"pair_coeff\t\t\t{type_Ai} {type_Bj} lj/cut ${{epsilon_AB}} 1.0 2.5")
-                    self._addLine(f"pair_coeff\t\t\t{type_Bi} {type_Aj} lj/cut ${{epsilon_AB}} 1.0 2.5")
-                    self._addLine(f"pair_coeff\t\t\t{type_Bi} {type_Bj} lj/cut ${{epsilon_BB}} 1.0 2.5")
-                    
+                    type_1 = min(type_Ai, type_Aj)
+                    type_2 = max(type_Ai, type_Aj)
+                    self._addLine(f"pair_coeff\t\t\t{type_1} {type_2} lj/cut ${{epsilon_AA}} 1.0 2.5")
+
+                    type_1 = min(type_Ai, type_Bj)
+                    type_2 = max(type_Ai, type_Bj)
+                    self._addLine(f"pair_coeff\t\t\t{type_1} {type_2} lj/cut ${{epsilon_AB}} 1.0 2.5")
+
+                    type_1 = min(type_Bi, type_Aj)
+                    type_2 = max(type_Bi, type_Aj)
+                    self._addLine(f"pair_coeff\t\t\t{type_1} {type_2} lj/cut ${{epsilon_AB}} 1.0 2.5")
+
+                    type_1 = min(type_Bi, type_Bj)
+                    type_2 = max(type_Bi, type_Bj)
+                    self._addLine(f"pair_coeff\t\t\t{type_1} {type_2} lj/cut ${{epsilon_BB}} 1.0 2.5")
+
+
         self._addLine("")
-        for ind, key in enumerate(self.components):
-            comp = self.components.get(key)
-            type_A = comp.get("type_A")
-            type_B = comp.get("type_B")
-
-            for tp in self.substrate.get("types"):
-                self._addLine(f"pair_coeff\t\t\t{type_A} {tp} lj/cut ${{epsilon_SA}} 1.0 2.5")
-                self._addLine(f"pair_coeff\t\t\t{type_B} {tp} lj/cut ${{epsilon_SB}} 1.0 2.5")
-
+        for types in self.types:
+            type_A = types.get('A')
+            type_B = types.get('B')
+        
+            tp_A = self.substrate_types.get('A')
+            tp_B = self.substrate_types.get('B')
+            self._addLine(f"pair_coeff\t\t\t{type_A} {tp_A} lj/cut ${{epsilon_SA}} 1.0 2.5")
+            self._addLine(f"pair_coeff\t\t\t{type_B} {tp_A} lj/cut ${{epsilon_SB}} 1.0 2.5")
+            self._addLine(f"pair_coeff\t\t\t{type_A} {tp_B} lj/cut ${{epsilon_SA}} 1.0 2.5")
+            self._addLine(f"pair_coeff\t\t\t{type_B} {tp_B} lj/cut ${{epsilon_SB}} 1.0 2.5")
+        
         self._addLine("")
         poly = []
-        for key in self.components:
-            comp = self.components.get(key)
-            poly.append(str(comp.get("type_A")))
-            poly.append(str(comp.get("type_B")))
+        for types in self.types:
+            poly.append(str(types.get('A')))
+            poly.append(str(types.get('B')))
 
-        subs = [str(tp) for tp in self.substrate.get("types")]
+        subs = [str(tp) for tp in self.substrate_types.values()]
+
         self._addLine(f"group\t\t\t\tpoly type {' '.join(poly)}")
         self._addLine(f"group\t\t\t\tsubs type {' '.join(subs)}")
 
