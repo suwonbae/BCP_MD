@@ -4,5 +4,5 @@
 PYBIND11_MODULE(rw, m) {
     m.doc() = "pybind11 example plugin"; // optional module docstring
 
-    m.def("fn_rw", &fn_rw);
+    m.def("fn_rw", &rw_test);
 }

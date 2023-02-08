@@ -1,57 +1,61 @@
-#include "cpp_rw.h"
+#include "bcp_md/model/cpp_rw.h"
 #include <pybind11/pybind11.h>
 
-// helper function
+void rw_test() {
+	randomwalk *rw = new randomwalk();
+
+	rw->setN(1);
+
+	rw->printN();
+
+	rw->readParams("in.parameters");
+	rw->generate();
+	rw->write();
+
+	delete rw;
+
+}
+
+std::random_device rd;
+std::mt19937 gen(rd() + time(0));
+
 long double next_rand_val(std::mt19937& gen, int a, int b) {
     std::uniform_real_distribution<long double> uni(a, b);
 
     return uni(gen);
 }
 
-void fn_rw() {
+randomwalk::randomwalk() {
+	R = 0.96;
+	cutoff = 1.05;
 
-    //int N, n;
-    int flag;
-    int ind;
-    int count;
+	atoms = nullptr;
+	bonds = nullptr;
+	chains = nullptr;
+	components = nullptr;
+	bond_new = nullptr;
+	bond_old = nullptr;
 
-    double lx, ly, lz;
+	line = 0;
+}
 
-    double R = 0.96; // 0.95
-    double cutoff = 1.05; //1.121; // 0.8
-    double **atoms = nullptr;
-    double **bonds = nullptr;
-    double *bond_new = nullptr;
-    double *bond_old = nullptr;
-    double *vec = nullptr;
-    double denom, dist, res_cos, b_new, b_old;
+void randomwalk::setN( int number ) {
+	N = number;
+}
 
-    FILE *fout;
+void randomwalk::printN() {
+	printf("N is %d\n", N);
+	printf("R is %f\n", R);
+}
 
-    std::random_device rd;
-    std::mt19937 gen(rd() + time(0));
-
-	FILE *fparams;
-	char dummy[10];
-	int n_total, N_total, num_bonds;
-	int bond_1, bond_2, bond_3, bond_type;
-	float f_A;
-	float **components = nullptr;
-	int num_components; 
-	int line = 0;
-	int **chains = nullptr;
-	double xlo, xhi;
-	double ylo, yhi;
-	double zlo, zhi;
-	std::vector <int> atom_types;
-	int bond_types;
-	int tp;
-
-	fparams = fopen("in.parameters", "r");
+void randomwalk::readParams(std::string filename) {
+	printf("File name is %s\n", filename.c_str());
+	fparams = fopen(filename.c_str(), "r");
 	fscanf(fparams, "%s %d\n", dummy, &num_components);
+	
 	for (int i = 0; i < num_components; i++) {
-		components = grow <float> (components, line + 1, 5);
-		fscanf(fparams, "%s %s %s %s %s %f %f %f %f %f\n", dummy, dummy, dummy, dummy, dummy, &components[line][0], &components[line][1], &components[line][2], &components[line][3], &components[line][4]);
+		components = grow <double> (components, line + 1, 5);
+		fscanf(fparams, "%s %s %s %s %s %lf %lf %lf %lf %lf\n", dummy, dummy, dummy, dummy, dummy, &components[line][0], &components[line][1], &components[line][2], &components[line][3], &components[line][4]);
 
 		std::vector<int>::iterator it;
 		for (int j = 0; j < 2; j++) {
@@ -63,91 +67,75 @@ void fn_rw() {
 
 		line++;
 	}
+
 	bond_types = (int)((float)atom_types.size()*3/2);
 
 	printf("%d atom types, %d bond types\n", (int)atom_types.size(), bond_types);
 
-	fscanf(fparams, "%s %s %lf %lf\n", dummy, dummy, &xlo, &xhi);
-	fscanf(fparams, "%s %s %lf %lf\n", dummy, dummy, &ylo, &yhi);
-	fscanf(fparams, "%s %s %lf %lf\n", dummy, dummy, &zlo, &zhi);
-	fclose(fparams);
+    fscanf(fparams, "%s %s %lf %lf\n", dummy, dummy, &xlo, &xhi);
+    fscanf(fparams, "%s %s %lf %lf\n", dummy, dummy, &ylo, &yhi);
+    fscanf(fparams, "%s %s %lf %lf\n", dummy, dummy, &zlo, &zhi);
+    fclose(fparams);
 
-	n_total = 0;
-	N_total = 0;
-	num_bonds = 0;
-	for (int i = 0; i < num_components; i++) {
-		n_total += (int)components[i][4];
-		N_total += (int)components[i][4]*(int)components[i][0];
-		num_bonds += (int)components[i][4]*((int)components[i][0]-1);
-	}
-	printf("%d chains, %d monomer long, %d bonds\n", n_total, N_total, num_bonds);
-
-	std::vector <int> labels;
-	int count_chain = 0;
-	int label;
-
-	label = (int)next_rand_val(gen, 0, n_total);
-	labels.push_back(label);
-	count_chain++;
-
-	while ((int)labels.size() < (int)components[0][4]) {
-		std::vector<int>::iterator it;
-		label = (int)next_rand_val(gen, 0, n_total);
-		it = find(labels.begin(), labels.end(), label);
-
-		if (it == labels.end())
-			labels.push_back(label);
-			count_chain++;
-	}
-
-	chains = grow <int> (chains, n_total, 2);
-	for (int i = 0; i < n_total; i++) {
-		chains[i][0] = i;
-		chains[i][1] = 1;
-	}
-	for (std::vector<int>::iterator it = labels.begin(); it != labels.end(); ++it)
-		chains[*it][1] = 0;
-
-	int sum = 0;
-	for (int i = 0; i < n_total; i++) {
-		sum += chains[i][1];
-		//printf("%d %d %d\n", chains[i][0], chains[i][1], sum);
-	}
-
-    //xlo = 0;
-    //xhi = 49.99;//57;
-    //ylo = 0;
-    //yhi = 79.66;//90;
-    //zlo = 0;
-    //zhi = 14.0;// 18;
-
-    //n = 1474;//1000; //1286;
-    //N = 20;//28;
-
-    lx = xhi - xlo;
+	lx = xhi - xlo;
     ly = yhi - ylo;
     lz = zhi - zlo;
 
-    atoms = grow <double> (atoms, N_total, 6);
-    bonds = grow <double> (bonds, num_bonds, 4);
-    bond_new = new double[3];
-    bond_old = new double[3];
-    vec = new double[3];
+    n_total = 0;
+    N_total = 0;
+    num_bonds = 0;
+	printf("%d chains, %d monomer long, %d bonds\n", n_total, N_total, num_bonds);
+	printf("%d\n", (int)components[0][0]);
+    for (int i = 0; i < num_components; i++) {
+        n_total += (int)components[i][4];
+        N_total += (int)components[i][4]*(int)components[i][0];
+        num_bonds += (int)components[i][4]*((int)components[i][0]-1);
+    }
+    printf("%d chains, %d monomer long, %d bonds\n", n_total, N_total, num_bonds);
 
-    atoms[0][0] = 1;
+    std::vector <int> labels;
+    int label;
 
-	ind = 0;
+    label = (int)next_rand_val(gen, 0, n_total);
+    labels.push_back(label);
+
+    while ((int)labels.size() < (int)components[0][4]) {
+        std::vector<int>::iterator it;
+        label = (int)next_rand_val(gen, 0, n_total);
+        it = find(labels.begin(), labels.end(), label);
+
+        if (it == labels.end()) labels.push_back(label);
+    }
+
+    chains = grow <int> (chains, n_total, 2);
+    for (int i = 0; i < n_total; i++) {
+        chains[i][0] = i;
+        chains[i][1] = 1;
+    }
+    for (std::vector<int>::iterator it = labels.begin(); it != labels.end(); ++it)
+        chains[*it][1] = 0;
+}
+
+void randomwalk::generate() {
+	atoms = grow <double> (atoms, N_total, 6);
+	bond_new = new double[3];
+	bond_old = new double[3];
+	vec = new double[3];
+
+	atoms[0][0] = 1;
+
     for (int i = 0; i < n_total; i++) {
 
-		// Long running iteration; pybind11
+        // Long running iteration; pybind11
         if (PyErr_CheckSignals() != 0)
             throw pybind11::error_already_set();
 
-		ind = 0;
-		for (int j = 0; j < i; j++) {
-        	ind += (int)components[chains[j][1]][0];
-		}
-        printf("%.2f\n", (float)i/(float)n_total);
+        ind = 0;
+        for (int j = 0; j < i; j++) {
+            ind += (int)components[chains[j][1]][0];
+        }
+        // printf("%.2f\n", (float)i/(float)n_total);
+		printf("%d %d\n", i, n_total);
 
         // The first atom for the i-th molecule
         flag = 0;
@@ -197,7 +185,7 @@ void fn_rw() {
 
                 atoms[ind + j][0] = atoms[ind + j - 1][0] + 1;
                 atoms[ind + j][1] = i + 1;
-				//atoms[ind + j][2] = 1;
+                //atoms[ind + j][2] = 1;
                 atoms[ind + j][2] = (j < (int) ((int)components[chains[i][1]][0] * components[chains[i][1]][1])) ? (int)components[chains[i][1]][2] : (int)components[chains[i][1]][3];
                 atoms[ind + j][3] = atoms[ind + j - 1][3] + bond_new[0];
                 atoms[ind + j][4] = atoms[ind + j - 1][4] + bond_new[1];
@@ -266,12 +254,11 @@ void fn_rw() {
                                 flag = 0;
                                 break;
                             }
-                        }                        
-                    }                                       
+                        }
+                    }
                 }
 
-                count++;
-
+				count++;
                 // try 100 times
                 if (count == 100) {
                     flag = 1;
@@ -286,42 +273,50 @@ void fn_rw() {
         }
     }
 
-    /*
+	/*
     * Generate bonds
     */
+
+    bonds = grow <double> (bonds, num_bonds, 4);
+
     for (int i = 0; i < n_total; i++) {
 
-		ind = 0;
-		for (int j = 0; j < i; j++) {
-			ind += (int)(components[chains[j][1]][0]) - 1;
-		}
-		//printf("%d %d\n", i, ind);
+        ind = 0;
+        for (int j = 0; j < i; j++) {
+            ind += (int)(components[chains[j][1]][0]) - 1;
+        }
+		
+        if ((int)components[chains[i][1]][2] == 1) {
+            bond_1 = 1;
+            bond_2 = 2;
+            bond_3 = 3;
+        }
+        if ((int)components[chains[i][1]][2] == 3) {
+            bond_1 = 4;
+            bond_2 = 5;
+            bond_3 = 6;
+        }
 
-		if ((int)components[chains[i][1]][2] == 1) {
-			bond_1 = 1;
-			bond_2 = 2;
-			bond_3 = 3;
-		}
-		if ((int)components[chains[i][1]][2] == 3) {
-			bond_1 = 4;
-			bond_2 = 5;
-			bond_3 = 6;
-		}
         for (int j = 0; j < (int)(components[chains[i][1]][0]) - 1; j++) {
-			if (j < (int) ((int)components[chains[i][1]][0] * components[chains[i][1]][1]) - 1) {
-				bond_type = bond_1;
-			} else if (j == (int) ((int)components[chains[i][1]][0] * components[chains[i][1]][1]) - 1) {
-				bond_type = bond_3;
-			} else {
-				bond_type = bond_2;
-			}
+            if (j < (int) ((int)components[chains[i][1]][0] * components[chains[i][1]][1]) - 1) {
+                bond_type = bond_1;
+            } else if (j == (int) ((int)components[chains[i][1]][0] * components[chains[i][1]][1]) - 1) {
+                bond_type = bond_3;
+            } else {
+                bond_type = bond_2;
+            }
+			printf("%d %d %d %d\n", i, ind + j, ind + i + j + 1, ind + i + j + 2);
+			
             bonds[ind + j][0] = ind + j + 1;
-            bonds[ind + j][1] = bond_type; 
+            bonds[ind + j][1] = bond_type;
             bonds[ind + j][2] = ind + i + j + 1;
             bonds[ind + j][3] = ind + i + j + 2;
         }
     }
 
+}
+
+void randomwalk::write() {
     fout = fopen("data.txt", "w");
     fprintf(fout, "# data\n\n");
     fprintf(fout, "%d atoms\n", N_total);
@@ -361,50 +356,3 @@ void fn_rw() {
     free(vec);
 
 }
-
-void *smalloc(int nbytes){
-    void *ptr = malloc(nbytes);
-    
-    return ptr;
-}
-
-void *srealloc(void *ptr, int nbytes) {
-    ptr = realloc(ptr, nbytes);
-    
-    return ptr;
-}
-
-template <typename T> T **create(T **&array, int n1, int n2) {
-    
-    int nbytes = sizeof(T) * n1 * n2;
-    T *data = (T *) smalloc(nbytes);
-    nbytes = sizeof(T *) * n1;
-    array = (T **) smalloc(nbytes);
-    
-    int n = 0;
-    for (int i = 0; i < n1; i++) {
-        array[i] = &data[n];
-        n += n2;
-    }
-        
-    return array;
-}
-
-template <typename T> T **grow(T **&array, int n1, int n2) {
-    
-    if (array == nullptr) return create(array, n1, n2);
-    
-    int nbytes = sizeof(T) * n1 * n2;
-    T *data = (T *) srealloc(array[0], nbytes);
-    nbytes = sizeof(T *) * n1;
-    array = (T **) srealloc(array, nbytes);
-    
-    int n = 0;
-    for (int i = 0; i < n1; i++) {
-        array[i] = &data[n];
-        n += n2;
-    }
-    
-    return array;
-}
-
