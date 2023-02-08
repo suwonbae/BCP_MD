@@ -6,6 +6,10 @@ import subprocess
 import os
 import math
 
+from . import rw
+from .rw import *
+
+__all__ = ['Data', 'Layer']
 
 class Data:
 
@@ -72,6 +76,41 @@ class Data:
         os.remove("atoms.txt")
         os.remove("bonds.txt")
         
+    def generate(self, components=None, sim_box=None, bc=None):
+
+        params = []
+        if components is not None:
+            params.append(f"components {len(components)}")
+
+            for key in components:
+                component = components.get(key)
+
+                params.append(f"N f_A A B n {component.get('N')} {component.get('f_A')} {component.get('block_types').get('A')} {component.get('block_types').get('B')} {component.get('n')}")
+
+        if sim_box is not None:
+            if len(sim_box) != 3: raise Exception("sim_box has to be 3-dim")
+            params.append(f"xlo xhi {sim_box[0][0]} {sim_box[0][1]}")
+            params.append(f"ylo yhi {sim_box[1][0]} {sim_box[1][1]}")
+            params.append(f"zlo zhi {sim_box[2][0]} {sim_box[2][1]}")
+
+        if bc is not None:
+            if len(bc) != 3: raise Exception("boundary condition has to be 3-dim")
+            params.append(f"boundary {bc[0]} {bc[1]} {bc[2]}")
+
+        if (components is not None) and (sim_box is not None) and (bc is not None):
+            print("random walk")
+
+            f = open('in.parameters', 'w')
+            f.write('\n'.join(params))
+            f.close()
+
+            fn_rw()
+
+            self.fname = 'data.txt'
+            self.read_data()
+            self.probe()
+
+
     def probe(self):
 
         components = {}
