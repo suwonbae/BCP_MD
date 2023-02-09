@@ -746,12 +746,12 @@ class Script:
         
         return f"variable\t\t\t{v_name} {v_type} {v_value}"
 
-    def save_script(self, output):
+    def save(self, output):
         
         self._add_line("# LAMMPS script")
         self._add_line("\n## Variables")
         for var in self.var:
-            self._add_line(self._convertVar(var))
+            self._add_line(self._convert_var(var))
 
         self._add_line("\n## Initialization")
         self._add_line("units\t\t\t\tlj")
