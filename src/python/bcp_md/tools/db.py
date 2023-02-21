@@ -383,12 +383,15 @@ class Sqldb:
         return components
 
 
-    def add_sim(self, components, path, comment=None):
+    def add_sim(self, components, path, substrate_id=None, comment=None):
 
         conn = self.conn
         c = conn.cursor()
 
-        c.execute("INSERT INTO sims (film_id, comment, path) VALUES (?, ?, ?);", (components.get('film_id'), comment, path))
+        if substrate_id is None:
+            c.execute("INSERT INTO sims (film_id, comment, path) VALUES (?, ?, ?);", (components.get('film_id'), comment, path))
+        else:
+            c.execute("INSERT INTO sims (film_id, substrate_id, comment, path) VALUES (?, ?, ?, ?);", (components.get('film_id'), substrate_id, comment, path))
         sim_id = c.lastrowid
         self.sim_id = sim_id
 
@@ -630,6 +633,7 @@ class Sqldb:
 
         query_simdyn = """
         SELECT
+            sequence,
             T_start,
             T_end,
             timestep,
@@ -657,18 +661,36 @@ class Sqldb:
         
         T = []
         t = []
-        for ind, dyn_line in enumerate(dyn):
-            T.append(dyn_line[0])
-            T.append(dyn_line[1])
-            t.append(ind*dyn_line[3]*dyn_line[2])
-            t.append((ind+1)*dyn_line[3]*dyn_line[2])          
+        for dyn_line in dyn:
+            sequence = dyn_line[0]
+            T_start = dyn_line[1]
+            T_end = dyn_line[2]
+            timestep = dyn_line[3]
+            steps = dyn_line[4]
+
+            T.append(T_start)
+            T.append(T_end)
+            t.append(sequence*steps*timestep)
+            t.append((sequence+1)*steps*timestep)          
 
         e_AB, alpha, Gamma = par[0]
 
-        plt.rc('font', size=13)
-        plt.rcParams["text.usetex"] = True
+        print(f"* e_AB = {e_AB}, alpha = {alpha}, Gamma = {Gamma}")
+        print(f"* substrate: {self.get_substrate_info(sim_id)}")
+        print(f"* t: {t[0]} to {t[-1]}")
 
-        fig, ax = plt.subplots(figsize=(4,3), dpi=200)
+        path = self.get_path(sim_id)
+        dirs = next(os.walk(path))[1]
+        dirs = natural_sort(dirs)
+        print(f"* {dirs[0]} to {dirs[-1]}")
+
+        try:
+            plt.rc('font', size=13)
+            plt.rcParams["text.usetex"] = True
+        except:
+            print("no tex")
+
+        fig, ax = plt.subplots(figsize=(3,2), dpi=200)
         ax.plot(t, T)
         x_min = min(t)
         x_max = max(t)
@@ -678,7 +700,7 @@ class Sqldb:
         offset = 0.1
         xticks = np.linspace(t[0], t[-1], 4)
         xticklabels = ["${{{t}}}$".format(t=t[0]), '', '', "${{{t}}}$".format(t=t[-1])]
-        ax.text(x_min, y_max + offset, f"$\\epsilon_{{\mathrm{{AB}}}}={e_AB}$, $\\alpha={alpha}$, $\\Gamma={Gamma}$", ha='left', va='top')
+        ax.text(x_min, y_max + offset, f"$\\epsilon_{{\mathrm{{AB}}}}={e_AB}$, $\\alpha={alpha}$, $\\Gamma={Gamma}$", ha='left', va='top', fontsize=9)
         ax.set_xlabel('time')
         ax.set_ylabel('temperature')
         ax.set_xlim(x_min, x_max)
@@ -687,6 +709,86 @@ class Sqldb:
         ax.set_ylim(y_min - offset, y_max + offset)
         plt.tight_layout(pad=0.5, h_pad=None, w_pad=None, rect=None)
         plt.savefig(f"sim_id_{sim_id}_dynamics.png", dpi=200)
+
+
+    def get_types(self, sim_id):
+
+        query = """
+        SELECT
+            film_info.*
+        FROM
+            film_info
+        JOIN sims
+        ON sims.film_id = film_info.film_id
+        WHERE sim_id = ?
+        ORDER BY layering;
+        """
+
+        conn = self.conn
+        c = conn.cursor()
+
+        tbl = c.execute(query, (sim_id,)).fetchall()
+        res = np.asarray(tbl)
+
+        types = {}
+
+        types.update({'all': list(res[:, 3:5].ravel())})
+        for i in range(res.shape[0]):
+            types.update({f"C{i}": list(res[i, 3:5])})
+
+        A = res[:,3]
+        B = res[:,4]
+        AA = res[:,5]
+        AB = res[:,6]
+        BB = res[:,7]
+
+        types.update({'A': list(A)})
+        types.update({'B': list(B)})
+        types.update({'AA': list(AA)})
+        types.update({'AB': list(AB)})
+        types.update({'BB': list(BB)})
+
+        return types
+
+
+    def get_path(self, sim_id):
+
+        query = """
+        SELECT
+            path
+        FROM
+            sims
+        WHERE sim_id = ?;
+        """
+
+        conn = self.conn
+        c = conn.cursor()
+
+        tbl = c.execute(query, (sim_id,)).fetchone()
+        path = tbl[0]
+
+        return path
+
+
+    def get_substrate_info(self, sim_id):
+        
+        query = """
+        SELECT
+            substrates.comment
+        FROM
+            substrates
+        JOIN sims
+        ON sims.substrate_id = substrates.substrate_id
+        WHERE sim_id = ?;
+        """
+
+        conn = self.conn
+        c = conn.cursor()
+
+        tbl = c.execute(query, (sim_id,)).fetchone()
+        comment = tbl[0]
+
+        return comment
 
 
     def close(self):
@@ -844,3 +946,10 @@ def parse_path(path, parameters={}):
         parameters.update({"Gamma": float(match.group(0))})
 
     return parameters
+
+
+def natural_sort(l):
+    convert = lambda text: int(text) if text.isdigit() else text.lower()
+    alphanum_key = lambda key: [convert(c) for c in re.split('([0-9]+)', key)]
+
+    return sorted(l, key=alphanum_key)
