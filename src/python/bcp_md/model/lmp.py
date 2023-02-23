@@ -25,6 +25,7 @@ class Data:
             self.read_data()
             self.probe()
 
+
     def read_data(self):
         '''
         read in atom coords and bond topology information
@@ -75,7 +76,8 @@ class Data:
 
         os.remove("atoms.txt")
         os.remove("bonds.txt")
-        
+
+
     def generate(self, components=None, sim_box=None, bc=None):
 
         params = []
@@ -295,6 +297,25 @@ class Data:
             self.num_bondtypes = len(np.unique(self.bonds[:,1]))
 
 
+    def modify_component(self, from_c, to_c):
+        components = self.components.copy()
+
+        components_tmp = {}
+            
+        old_keys = from_c # ex: [0, 1]
+        new_keys = to_c #ex: [1, 0]
+
+        for old_key, new_key in zip(old_keys, new_keys):
+            print(old_key, new_key)
+            components_tmp.update({new_key: components.get(old_key)})
+            
+        components_tmp.update({'substrate': components.get('substrate')})
+        print("tmp", components_tmp)
+        components = components_tmp
+
+        self.components = components
+
+
     def write(self, output='data_result.txt', header=None):
 
         #f = open(os.path.join("results", output), "w")
@@ -333,12 +354,13 @@ class Data:
                 f.write(line)
             f.close()
 
+
 class Layer:
+
     def __init__(self, data, blend=None, **kwargs):
         self.data = data
         self.args = kwargs
             
-
         # instead of starting with an empty dict, if given [1, 2], insert 1 and 2 into a list, pop 2 and update 1
         if blend is not None:
             components = {}
@@ -437,18 +459,17 @@ class Layer:
 
         print('hi', data.components)
         print('hello', self.data.components)
-        offset = 0
-        offset_bond = 0
         self._film = self.film.copy()
         self._bonds = self.bonds.copy()
         
         already_keys = [i for i in data.components.keys() if isinstance(i, int)]
 
+        offset_to_key = len(already_keys)
         for component_key in self.data.components:
             component = self.data.components.get(component_key)
 
             if component_key != 'substrate':
-                data.components.update({len(already_keys): component})
+                data.components.update({component_key + offset_to_key: component})
 
         print(other.substrate.shape)
         #old_A = other.substrate_types.get('A')
@@ -521,6 +542,7 @@ class Layer:
 
         return layer
 
+
     def add_substrate(self, substrate_types={'A': 3, 'B': 4}, ratio=0.5):
 
         #TODO: sDSA, grapho
@@ -586,6 +608,7 @@ class Layer:
 
         self.data.has_substrate = True
 
+
     def _det_type(self):
 
         rn = np.random.rand(self.num_subsbeads)
@@ -597,6 +620,7 @@ class Layer:
         ttype[A] = self.substrate_types.get('A')
         
         return ttype, sum(A), sum(B)
+
 
     def _det_pair_film_film(self, pairs):
 
@@ -667,6 +691,27 @@ class Layer:
 
         return pairs
 
+
+    def modify_layering(self, from_layering, to_layering):
+
+        components = self.data.components.copy()
+
+        components_tmp = {}
+            
+        old_keys = from_layering # ex: [0, 1]
+        new_keys = to_layering #ex: [1, 0]
+
+        for old_key, new_key in zip(old_keys, new_keys):
+            print(old_key, new_key)
+            components_tmp.update({new_key: components.get(old_key)})
+            
+        components_tmp.update({'substrate': components.get('substrate')})
+        print("tmp", components_tmp)
+        components = components_tmp
+
+        self.data.components = components
+
+
 class Script:
 
     def __init__(self):
@@ -675,6 +720,7 @@ class Script:
         self.components = {}
         self.substrate = {}
         self.timestep = 0.006
+
 
     def set_variables(self, v_type, **kwargs):
 
@@ -692,11 +738,13 @@ class Script:
                 "epsilon_SA": {"type": "equal", "value": '"v_epsilon_AA * v_Gamma + (1 - v_Gamma) * v_epsilon_AB"'},
                 "epsilon_SB": {"type": "equal", "value": '"(1 - v_Gamma) * v_epsilon_BB + v_epsilon_AB * v_Gamma"'}
                 })
-            
+
+
     def set_bc(self, x='p', y='p', z='f'):
         self.bc_x = x
         self.bc_y = y
         self.bc_z = z
+
 
     def set_components(self, components):
         self.components.update(components)
@@ -731,12 +779,13 @@ class Script:
         self.substrate_types = substrate_types
 
 
-
     def set_timestep(self, timestep):
         self.timestep = timestep
 
+
     def _add_line(self, line: str):
         self.script.append(line)
+
 
     def _convert_var(self, v_name: str) -> str:
 
@@ -746,7 +795,8 @@ class Script:
         
         return f"variable\t\t\t{v_name} {v_type} {v_value}"
 
-    def save(self, output):
+
+    def save(self, lmp_data_name, output):
         
         self._add_line("# LAMMPS script")
         self._add_line("\n## Variables")
@@ -766,11 +816,11 @@ class Script:
         self._add_line("pair_modify\t\t\tshift yes")
 
         self._add_line("if \"${sim} == 0\" then &")
-        self._add_line("  \"read_data data_preequil\" &")
+        self._add_line(f"  \"read_data {lmp_data_name}\" &")
         self._add_line("  \"#read_restart restart_preequil\" &")
         self._add_line("else &")
         self._add_line("  \"variable index equal 'v_sim - 1'\" &")
-        self._add_line("  \"read_start restart_equil_${index}\" &")
+        self._add_line("  \"read_restart restart_equil_${index}\" &")
         self._add_line("  \"#read_data data_equil_${index}\" &")
 
 
