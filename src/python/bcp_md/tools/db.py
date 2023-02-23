@@ -474,7 +474,7 @@ class Sqldb:
             layers
         """
 
-        conditions, values = self._generate_condition(['chain_id', 'n'], kwargs)
+        conditions, values = self._generate_condition(['layer_id', 'chain_id', 'n'], kwargs)
 
         if len(conditions) > 0:
             query += f"WHERE {' AND '.join(conditions)}\n"
