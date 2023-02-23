@@ -3,6 +3,7 @@ import numpy as np
 import re
 import os
 import matplotlib.pyplot as plt
+import pandas as pd
 
 __all__ = ['Sqldb', 'parse', 'parse_log', 'parse_path']
 
@@ -447,6 +448,7 @@ class Sqldb:
         FROM
             chains
         """
+
         conditions, values = self._generate_condition(['N', 'f_A'], kwargs)
 
         if len(conditions) > 0:
@@ -454,13 +456,11 @@ class Sqldb:
         query += f"ORDER BY N;"
  
         conn = self.conn
-        c = conn.cursor()
 
         if len(conditions) > 0:
-            tbl = c.execute(query, tuple(values)).fetchall()
+            tbl = pd.read_sql(query, conn, params=tuple(values))
         else:
-            tbl = c.execute(query).fetchall()
-
+            tbl = pd.read_sql(query, conn)
 
         return tbl
 
@@ -481,13 +481,11 @@ class Sqldb:
         query += f"ORDER BY n;"
 
         conn = self.conn
-        c = conn.cursor()
 
         if len(conditions) > 0:
-            tbl = c.execute(query, tuple(values)).fetchall()
+            tbl = pd.read_sql(query, conn, params=tuple(values))
         else:
-            tbl = c.execute(query).fetchall()
-
+            tbl = pd.read_sql(query, conn)
 
         return tbl
 
@@ -541,9 +539,8 @@ class Sqldb:
         """
 
         conn = self.conn
-        c = conn.cursor()
 
-        tbl = c.execute(query, (layer_id,)).fetchall()
+        tbl = pd.read_sql(query, conn, params=(layer_id,))
 
         return tbl
 
@@ -593,9 +590,8 @@ class Sqldb:
         """
 
         conn = self.conn
-        c = conn.cursor()
-
-        tbl = c.execute(query, (film_id,)).fetchall()
+        
+        tbl = pd.read_sql(query, conn, params=(film_id,))
 
         return tbl
 
@@ -615,13 +611,11 @@ class Sqldb:
             query += f"WHERE {' AND '.join(conditions)}\n"
 
         conn = self.conn
-        c = conn.cursor()
 
         if len(conditions) > 0:
-            tbl = c.execute(query, tuple(values)).fetchall()
+            tbl = pd.read_sql(query, conn, params=tuple(values))
         else:
-            tbl = c.execute(query).fetchall()
-
+            tbl = pd.read_sql(query, conn)
 
         return tbl
 
@@ -629,7 +623,6 @@ class Sqldb:
     def report_sim(self, sim_id):
 
         conn = self.conn
-        c = conn.cursor()
 
         query_simdyn = """
         SELECT
@@ -637,7 +630,9 @@ class Sqldb:
             T_start,
             T_end,
             timestep,
-            steps
+            steps,
+            log,
+            comment
         FROM
             sim_dynamics
         WHERE sim_id = ?;
@@ -653,15 +648,12 @@ class Sqldb:
         WHERE sim_id = ?;
         """
 
-        dyn = c.execute(query_simdyn, (sim_id,)).fetchall()
-        par = c.execute(query_simpar, (sim_id,)).fetchall()
-
-        dyn = np.asarray(dyn)
-        par = np.asarray(par)
+        dyn = pd.read_sql(query_simdyn, conn, params=(sim_id,))
+        par = pd.read_sql(query_simpar, conn, params=(sim_id,))
         
         T = []
         t = []
-        for dyn_line in dyn:
+        for dyn_line in dyn.values:
             sequence = dyn_line[0]
             T_start = dyn_line[1]
             T_end = dyn_line[2]
@@ -673,7 +665,7 @@ class Sqldb:
             t.append(sequence*steps*timestep)
             t.append((sequence+1)*steps*timestep)          
 
-        e_AB, alpha, Gamma = par[0]
+        e_AB, alpha, Gamma = par.values[0,:]
 
         print(f"* e_AB = {e_AB}, alpha = {alpha}, Gamma = {Gamma}")
         print(f"* substrate: {self.get_substrate_info(sim_id)}")
@@ -681,8 +673,13 @@ class Sqldb:
 
         path = self.get_path(sim_id)
         dirs = next(os.walk(path))[1]
-        dirs = natural_sort(dirs)
-        print(f"* {dirs[0]} to {dirs[-1]}")
+        pattern = re.compile(r"(?<=equil_)\d+$")
+        dirs_of_interest = []
+        for d in dirs:
+            m = pattern.search(d)
+            if m: dirs_of_interest.append(d)
+        dirs_of_interest = natural_sort(dirs_of_interest)
+        print(f"* {dirs_of_interest[0]} to {dirs_of_interest[-1]}")
 
         try:
             plt.rc('font', size=13)
@@ -709,6 +706,8 @@ class Sqldb:
         ax.set_ylim(y_min - offset, y_max + offset)
         plt.tight_layout(pad=0.5, h_pad=None, w_pad=None, rect=None)
         plt.savefig(f"sim_id_{sim_id}_dynamics.png", dpi=200)
+
+        return par, dyn
 
 
     def get_types(self, sim_id):
