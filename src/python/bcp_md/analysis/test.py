@@ -35,7 +35,7 @@ class Dump:
     def compute_density(self, groups, bins):
         """
         compute density through the film thickness
-        Arguments:
+        Parameters:
         ----------
         groups (dict): types of beads for each group whose density is computed
         bins (list): bins to be used to compute density
@@ -98,7 +98,7 @@ class Dump:
     def compute_pattern(self, types, delta=[0.5, 0.5, 0.5], fft_resolution=2048, zoom_mag=4):
         """
         determine pattern made by beads of given types and compute repeat spacing
-        Arguments:
+        Parameters:
         ----------
         types (list): types of beads to be used to make blobs/morphologies and pattern
         delta (list): binning size for each axis (default: [0.5, 0.5, 0.5])
@@ -301,7 +301,8 @@ class Dump:
         """
         compute local fraction of a component in the blobs made by blocks of a certain type
         the complement set of types1 and types2 over types 2
-        Arguments:
+
+        Parameters:
         ----------
         types1 (list): types of a component
         types2 (list): types of a type of block
@@ -361,7 +362,7 @@ class Dump:
         Only after every object is identified, change obj_flag to True to proceed
         For infinitely long object to be handled, change periodic to True
 
-        Arguments:
+        Parameters:
         ----------
         types_A (list): types of beads constructing objects
         types_B (list): types of beads constructing matrix
@@ -736,7 +737,8 @@ class Dump:
     def convert_to_lmpdata(self, data_file=None):
         """
         Extract chain topology from an lmp data file and write a new data file using a dump file
-        Arguments:
+
+        Parameters:
         ----------
         data_file (str): name of data file from which chain topology is extracted
 
@@ -1035,7 +1037,7 @@ class DumpProgress:
         """
         save the results dict in the given path
 
-        Arguments:
+        Parameters:
         ----------
         path: path to directory in which the results dict is saved
 
@@ -1080,7 +1082,7 @@ class DumpProgress:
         """
         specify timesteps by manually providing an array
 
-        Arguments:
+        Parameters:
         ----------
         timesteps (array): use these timesteps to compute observables
 
@@ -1109,7 +1111,7 @@ class DumpProgress:
         """
         fix blank dump files by replacing it by an adjacent one
 
-        Arguments:
+        Parameters:
         ----------
         f_ind (int): index of self.fnames
 
@@ -1175,7 +1177,7 @@ class DumpProgress:
         """
         compute density through the film thickness
 
-        Arguments:
+        Parameters:
         ----------
         types: types of beads to be used to compute density
         zlo: lower limit
@@ -1293,7 +1295,7 @@ class DumpProgress:
         compute local fraction of a component in the blobs made by blocks of a certain type
         the complement set of types1 and types2 over types 2
 
-        Arguments:
+        Parameters:
         ----------
         types1 (list): types of a component
         types2 (list): types of a type of block
@@ -1411,7 +1413,7 @@ class DumpProgress:
         """
         compute orientation of morphology (Hermanns order parameter, S at every height) w.r.t director
 
-        Arguments:
+        Parameters:
         ----------
         bond_types (list): types of bonds that connect A and B blocks (AB)
         zlo: lower limit
@@ -1564,7 +1566,7 @@ class DumpProgress:
         """
         compute angles of chains at every height w.r.t director
 
-        Arguments:
+        Parameters:
         ----------
         bond_types (list): types of bonds that connect A and B blocks (AB)
         zlo: lower limit
@@ -1823,7 +1825,7 @@ class DumpProgress:
         """
         compute stratification of beads of given types comparing the top and bottom halves
 
-        Arguments:
+        Parameters:
         ----------
         types (list): types of beads of interesting
 
@@ -2151,7 +2153,7 @@ def loadtrj(f_name, skiprows=9):
 
 def binarize_3D(trj, box, delta, types):
     """
-    Arguments:
+    Parameters:
     ----------
     trj: MD trajectories, N by 6 2D array (atom-id, mol-id, atom-type, x, y, z)
     box: lower and upper limits of simulation box in each axis
@@ -2190,7 +2192,7 @@ def binarize_2D(trj, box, delta, types):
     """
     Discretize simulation box into voxels and identifies a voxel within which each atom falls
 
-    Arguments:
+    Parameters:
     ----------
     trj: MD trajectories given as a 2D array (N by 6)
         atom-id, mol-id, atom-type, x, y, z
@@ -2229,7 +2231,7 @@ def view_xy(binary_3D, delta, method='topview'):
     """
     Generate an orthographic, top-view image by determining the highest material point along z axis at each grid point on the xy plane
 
-    Arguments:
+    Parameters:
     ----------
     binary_3D: A 3D array (binx by biny by binz) whose elements are atom counts
     delta: bin width 
@@ -2274,7 +2276,7 @@ def floodfill_pbc(binary_2D, x, y, blob, repeat=4):
     """
     Floodfill over periodic boundary conditions
 
-    Arguments:
+    Parameters:
     ----------
     binary_2D: A 2D array (binx by biny) whose elements represent atoms counts or weighted intensities
     x, y: indeces for binary_2D[x][y]
@@ -2283,7 +2285,7 @@ def floodfill_pbc(binary_2D, x, y, blob, repeat=4):
 
     Returns:
     --------
-
+    N/A
     """
     array = binary_2D
 
@@ -2355,7 +2357,21 @@ def d_pbc2D(vector1, vector2, boxlength):
 
 
 def contour_finder(matrix, x, y, contour, repeat=4):
-    'floodfills over periodic boundary conditions'
+    """
+    Floodfill over periodic boundary conditions to get the contours of objects
+
+    Parameters:
+    ----------
+    matrix: A 2D array (binx by biny) whose elements represent atoms counts or weighted intensities
+    x, y: indeces for matrix[x][y]
+    contour: sets of [i, j] for each object's contour determined by floodfill
+    repeat: floodfill is applied over this many periods
+
+    Returns:
+    --------
+    N/A
+    """
+
 
     if matrix[x%len(matrix), y%len(matrix[x%len(matrix)])] == 0.5:
         matrix[x%len(matrix), y%len(matrix[x%len(matrix)])] = 0.4
