@@ -527,7 +527,7 @@ class Sqldb:
         query data from the chains table
         Parameters:
         ----------
-        kwargs (dict): anything can be passed, but only 'N' and 'f_A' work
+        kwargs: anything can be passed, but only 'N' and 'f_A' work
             N (int): chain length
             f_A (float): fraction of minority A; architecture of linear BCP
         
@@ -564,7 +564,7 @@ class Sqldb:
         query data from the layers table
         Parameters:
         ----------
-        kwargs (dict): anything can be passed, but only 'layer_id', 'chain_id', and 'n' work
+        kwargs: anything can be passed, but only 'layer_id', 'chain_id', and 'n' work
             layer_id (int): layer ID
             chain_id (int): chain ID
             n (int): number of chains/molecules
@@ -728,7 +728,7 @@ class Sqldb:
         query data from the sims table
         Parameters:
         ----------
-        kwargs (dict): anything can be passed, but only 'sim_id' and 'film_id' work
+        kwargs: anything can be passed, but only 'sim_id' and 'film_id' work
             sim_id (int): simulation ID
             film_id (int): film ID
         

@@ -12,9 +12,14 @@ from .rw import *
 __all__ = ['Data', 'Layer', 'Script']
 
 class Data:
-
-    '''Lammps data'''
+    """
+    Attributes:
+        fname (str): lmp data file name
+    """
     def __init__(self, fname=None):
+        """
+        Data constructor
+        """
 
         self.has_substrate = False
         self.templates = None
@@ -27,9 +32,9 @@ class Data:
 
 
     def read_data(self):
-        '''
+        """
         read in atom coords and bond topology information
-        '''
+        """
 
         flag = 0
         f = open(self.fname, "r")
@@ -78,26 +83,36 @@ class Data:
         os.remove("bonds.txt")
 
 
-    def generate(self, components=None, sim_box=None, bc=None):
+    def generate(self, components, sim_box, bc):
+        """
+        generate a self-avoiding random walk structure
+        Parameters:
+        ----------
+        components (dict): components to be used to construct layers and films
+        sim_box (list): list of lower and upper bounds in each axis; [[xlo, xhi], [ylo, yhi], [zlo, zhi]]
+        bc (list): list of boundary conditions in each axis; ['p', 'p', 'f']
+
+        Returns:
+        -------
+        N/A
+        """
 
         params = []
-        if components is not None:
-            params.append(f"components {len(components)}")
 
-            for key in components:
-                component = components.get(key)
+        params.append(f"components {len(components)}")
 
-                params.append(f"N f_A A B n {component.get('N')} {component.get('f_A')} {component.get('block_types').get('A')} {component.get('block_types').get('B')} {component.get('n')}")
+        for key in components:
+            component = components.get(key)
 
-        if sim_box is not None:
-            if len(sim_box) != 3: raise Exception("sim_box has to be 3-dim")
-            params.append(f"xlo xhi {sim_box[0][0]} {sim_box[0][1]}")
-            params.append(f"ylo yhi {sim_box[1][0]} {sim_box[1][1]}")
-            params.append(f"zlo zhi {sim_box[2][0]} {sim_box[2][1]}")
+            params.append(f"N f_A A B n {component.get('N')} {component.get('f_A')} {component.get('block_types').get('A')} {component.get('block_types').get('B')} {component.get('n')}")
 
-        if bc is not None:
-            if len(bc) != 3: raise Exception("boundary condition has to be 3-dim")
-            params.append(f"boundary {bc[0]} {bc[1]} {bc[2]}")
+        if len(sim_box) != 3: raise Exception("sim_box has to be 3-dim")
+        params.append(f"xlo xhi {sim_box[0][0]} {sim_box[0][1]}")
+        params.append(f"ylo yhi {sim_box[1][0]} {sim_box[1][1]}")
+        params.append(f"zlo zhi {sim_box[2][0]} {sim_box[2][1]}")
+
+        if len(bc) != 3: raise Exception("boundary condition has to be 3-dim")
+        params.append(f"boundary {bc[0]} {bc[1]} {bc[2]}")
 
         if (components is not None) and (sim_box is not None) and (bc is not None):
             print("random walk")
@@ -106,6 +121,7 @@ class Data:
             f.write('\n'.join(params))
             f.close()
 
+            # call a function using pybind11
             fn_rw()
 
             self.fname = 'data.txt'
@@ -114,6 +130,9 @@ class Data:
 
 
     def probe(self):
+        """
+        probe the given lmp data file and get components
+        """
 
         components = {}
 
@@ -213,7 +232,21 @@ class Data:
 
 
     def tailor(self, component_key, **kwargs):
-        
+        """
+        tailor f_A, block_types, or/and bond_types for a component
+        Parameters:
+        ----------
+        component_key (int/string): component key that refers to the component to be tailored
+        kwargs: only 'f_A', 'block_types', and 'bond_types' work
+            block_types (dict): new types of constituent beads; {'A': 1, 'B': 2}
+            bond_types (dict): new types of bonds; {'AA': 1, 'AB': 3, 'BB': 2}
+            f_A (float): new fraction of minority A; architecture of linear BCP
+
+        Returns:
+        -------
+        N/A
+        """
+
         component = self.components.get(component_key)
 
         if component_key == 'substrate':
@@ -298,6 +331,18 @@ class Data:
 
 
     def modify_component(self, from_c, to_c):
+        """
+        modify component_key since the layer ordering may not correctly assigned when reading in an lmp data file
+        Parameters:
+        ----------
+        from_c (list): list of current ordering; [0, 1]
+        to_c (list): list of new ordering; [1, 0]
+
+        Returns:
+        -------
+        N/A
+        """
+
         components = self.components.copy()
 
         components_tmp = {}
@@ -317,6 +362,17 @@ class Data:
 
 
     def write(self, output='data_result.txt', header=None):
+        """
+        write an lmp data file
+        Parameters:
+        ----------
+        output (str): name of lmp data file to be written
+        header (str): header/comment to be written on the top  
+
+        Returns:
+        -------
+        N/A
+        """
 
         #f = open(os.path.join("results", output), "w")
         f = open(output, "w")
@@ -356,23 +412,35 @@ class Data:
 
 
 class Layer:
-
+    """
+    Attributes:
+        data (Data): an instance of the lmp data type
+        blend (list): list of components that are blended
+    """
     def __init__(self, data, blend=None, **kwargs):
+        """
+        Layer constructor
+        """
+
+        if not isinstance(data, Data): raise Exception("data has to be an lmp data")
+
         self.data = data
         self.args = kwargs
-            
-        # instead of starting with an empty dict, if given [1, 2], insert 1 and 2 into a list, pop 2 and update 1
+        
+        # TODO:
+        # as is okay, but instead of starting with an empty dict
+        # if given [1, 2], insert 1 and 2 into a list, pop 2 and update 1
         if blend is not None:
             components = {}
 
             sub_components = []
 
-            for component_key in self.data.components:
+            for component_key, component in self.data.components.items():
                 
                 if component_key in blend:
-                    sub_components.append(self.data.components.get(component_key))
+                    sub_components.append(component)
                 else:
-                    components.update({component_key: self.data.components.get(component_key)})
+                    components.update({component_key: component})
 
             components.update({blend[0]: sub_components})
             self.data.components = components
@@ -436,9 +504,22 @@ class Layer:
 
 
     def __truediv__(self, other):
-        '''
-        self on top of other; self over other; self / other
-        '''
+        """
+        generate layered structure by putting self on top of other; self over other; self / other
+
+        this is a defined operator, not a function
+        both operands should be of the Layer type
+        Parameters:
+        ----------
+        N/A
+        
+        Returns:
+        -------
+        layer (Layer): a new instance of the Layer type
+        """
+
+        if not isinstance(self, Layer): raise Exception("the numerator has to be a layer")
+        if not isinstance(other, Layer): raise Exception("the denominator has to be a layer")
 
         data = Data()
         data.xlo = self.data.xlo
@@ -544,6 +625,16 @@ class Layer:
 
 
     def add_substrate(self, substrate_types={'A': 3, 'B': 4}, ratio=0.5):
+        """
+        add a substrate to the lmp data
+        Parameters:
+        ----------
+        substrate_types (dict): types of beads for the substrate
+        
+        Returns:
+        -------
+        N/A
+        """
 
         #TODO: sDSA, grapho
         mode = None
@@ -610,7 +701,9 @@ class Layer:
 
 
     def _det_type(self):
-
+        """
+        determine types of substrate beads
+        """
         rn = np.random.rand(self.num_subsbeads)
         ttype = np.zeros(len(rn))
         
@@ -623,6 +716,16 @@ class Layer:
 
 
     def _det_pair_film_film(self, pairs):
+        """
+        determine all possible interactions between film beads
+        Parameters:
+        ----------
+        pairs (list): list of pairs (normally given as an empty list)
+        
+        Returns:
+        -------
+        pairs (list): list of pairs
+        """
 
         for i, types_i in enumerate(self.types):
             type_Ai = types_i.get('A')
@@ -657,6 +760,19 @@ class Layer:
 
     
     def _det_pair_film_substrate(self, pairs, e_AA=None, e_AB=None, e_BB=None):
+        """
+        determine all possible interactions between film and substrate beads
+        Parameters:
+        ----------
+        pairs (list): list of pairs (normally already filled in with film-film pairs)
+        e_AA (float): interaction parameter between A and A
+        e_AB (float): interaction parameter between A and B
+        e_BB (float): interaction parameter between B and B
+        
+        Returns:
+        -------
+        pairs (list): list of pairs
+        """
 
         if e_AA is not None:
             e_AA = e_AA
@@ -693,7 +809,21 @@ class Layer:
 
 
     def modify_layering(self, from_layering, to_layering):
+        """
+        modify/fix component_key (layering)
+        since the layer ordering may not correctly assigned when reading in an lmp data file
+        OR after blended by __init__, component_keys may not be correct
 
+        effectively the same as the Data.modify_component method
+        Parameters:
+        ----------
+        from_c (list): list of current ordering; [0, 1]
+        to_c (list): list of new ordering; [1, 0]
+
+        Returns:
+        -------
+        N/A
+        """
         components = self.data.components.copy()
 
         components_tmp = {}
@@ -713,8 +843,14 @@ class Layer:
 
 
 class Script:
-
+    """
+    Attributes:
+        N/A
+    """
     def __init__(self):
+        """
+        Script constructor
+        """
         self.script = []
         self.var = {}
         self.components = {}
@@ -723,6 +859,18 @@ class Script:
 
 
     def set_variables(self, v_type, **kwargs):
+        """
+        set variables to be used in the lmp script
+        Parameters:
+        ----------
+        v_type (str): either "equal" or "index"
+            "equal": cannot be replaced by command line arguments
+            "index": can be replaced by command line arguments
+
+        Returns:
+        -------
+        N/A
+        """
 
         for v_name in kwargs:
             self.var.update({v_name: {"type": v_type, "value": kwargs.get(v_name)}})
@@ -741,12 +889,36 @@ class Script:
 
 
     def set_bc(self, x='p', y='p', z='f'):
+        """
+        set boundary conditions
+        Parameters:
+        ----------
+        x (str): condition in x axis
+        y (str): condition in y axis
+        z (str): condition in z axis
+
+        Returns:
+        -------
+        N/A
+        """
+
         self.bc_x = x
         self.bc_y = y
         self.bc_z = z
 
 
     def set_components(self, components):
+        """
+        set components
+        Parameters:
+        ----------
+        components (dict): components to be used to construct layers and films
+
+        Returns:
+        -------
+        N/A
+        """
+        
         self.components.update(components)
 
         types = []
@@ -780,15 +952,30 @@ class Script:
 
 
     def set_timestep(self, timestep):
+        """
+        set timestep
+        Parameters:
+        ----------
+        timestep (float): timestep
+
+        Returns:
+        -------
+        N/A
+        """
         self.timestep = timestep
 
 
     def _add_line(self, line: str):
+        """
+        add line in the script list
+        """
         self.script.append(line)
 
 
     def _convert_var(self, v_name: str) -> str:
-
+        """
+        helper function that converts given variables to lines that can be directly used in lmp script
+        """
         var_temp = self.var.get(v_name)
         v_type = var_temp.get("type")
         v_value = var_temp.get("value")
@@ -797,7 +984,18 @@ class Script:
 
 
     def save(self, lmp_data_name, output):
-        
+        """
+        save lmp script
+        Parameters:
+        ----------
+        lmp_data_name (str): lmp input data "file name"
+        output (str): name of lmp script output
+
+        Returns:
+        -------
+        N/A
+        """
+
         self._add_line("# LAMMPS script")
         self._add_line("\n## Variables")
         for var in self.var:
