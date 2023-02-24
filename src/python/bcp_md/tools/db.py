@@ -8,8 +8,15 @@ import pandas as pd
 __all__ = ['Sqldb', 'parse', 'parse_log', 'parse_path']
 
 class Sqldb:
+    """
+    Attributes:
+        db (sql database)
+    """
 
     def __init__(self, db):
+        """
+        Sqldb constructor
+        """
 
         try:
             conn = sqlite3.connect(db)
@@ -26,14 +33,20 @@ class Sqldb:
 
 
     def activate_foreign_keys(self):
-        
+        """
+        enable foreign_keys
+        """
+
         conn = self.conn
         c = conn.cursor()
         c.execute("PRAGMA foreign_keys = ON;")
         print("## foreign_keys = ON\n")
 
 
-    def deactivate_foriegn_keys(self):
+    def deactivate_foreign_keys(self):
+        """
+        disable foreign_keys
+        """
 
         conn = self.conn
         c = conn.cursor()
@@ -42,6 +55,16 @@ class Sqldb:
 
 
     def identify_chain(self, components):
+        """
+        identify chain_id of given components
+        Parameters:
+        ----------
+        components (dict): components to be used to construct layers and films
+
+        Returns:
+        -------
+        components (dict): components updated with chain_id
+        """
 
         conn = self.conn
         c = conn.cursor()
@@ -97,6 +120,16 @@ class Sqldb:
 
 
     def identify_layer(self, components):
+        """
+        identify layer_id of given components
+        Parameters:
+        ----------
+        components (dict): components to be used to construct layers and films
+
+        Returns:
+        -------
+        components (dict): components updated with layer_id
+        """
 
         conn = self.conn
         c = conn.cursor()
@@ -202,27 +235,22 @@ class Sqldb:
         return components
 
 
-    def identify_film(self, components, layering=None, comment=None):
+    def identify_film(self, components, comment=None):
+        """
+        identify film_id of given components
+        Parameters:
+        ----------
+        components (dict): components to be used to construct layers and films
+
+        Returns:
+        -------
+        components (dict): components updated with film_id
+        """
 
         conn = self.conn
         c = conn.cursor()
 
-        # if component is list: blend, ditc: pure
-        # 1 component -> single layer
-        # more than 1 -> multi-layered
-
-        if layering is not None:
-            components_tmp = {}
-            
-            old_keys = list(components.keys()) # ex: [0, 1]
-            new_keys = layering #ex: [1, 0]
-
-            for old_key, new_key in zip(old_keys, new_keys):
-                print(old_key, new_key)
-                components_tmp.update({new_key: components.get(old_key)})
-            
-            print("tmp", components_tmp)
-            components = components_tmp
+        # if component is list: blend, dict: pure
 
         query = """
         SELECT film_id
@@ -385,6 +413,19 @@ class Sqldb:
 
 
     def add_sim(self, components, path, substrate_id=None, comment=None):
+        """
+        add a new entry to the sim table
+        Parameters:
+        ----------
+        components (dict): components to be used to construct layers and films
+        path (str): path to the simulations
+        substrate_id (int): substrate_id can be specified
+        comment (str): comment
+
+        Returns:
+        -------
+        sim_id (int): the simulation id
+        """
 
         conn = self.conn
         c = conn.cursor()
@@ -394,12 +435,34 @@ class Sqldb:
         else:
             c.execute("INSERT INTO sims (film_id, substrate_id, comment, path) VALUES (?, ?, ?, ?);", (components.get('film_id'), substrate_id, comment, path))
         sim_id = c.lastrowid
-        self.sim_id = sim_id
 
         conn.commit()
 
+        return sim_id
+        
 
-    def add_sim_dynamics(self, sequence, ensemble='nvt', T_start=1.2, T_end=1.2, T_damp=10.0, timestep=0.006, steps=10000000, log=None, comment=None):
+    def add_sim_dynamics(self, sim_id, sequence, ensemble='nvt', T_start=1.2, T_end=1.2, T_damp=10.0, timestep=0.006, steps=10000000, log=None, comment=None):
+        """
+        add a new entry to the sim_dynamics; thermal history
+        Parameters:
+        ----------
+        sim_id (int): the simulation id (primary key in the sim table)
+        sequence (int): id of sub-simulation ("equil_0", "equil_1", ...)
+        ensemble (str): ensemble adopted in the simulation
+        T_start (float): initial temperature
+        T_end (float): final temperature
+        T_damp (float): damping factor
+        timestep (float): delta t
+        steps (int): number of steps
+        log (bool): True if (simulation is done and) log file exists
+                    NULL otherwise
+        comment (str): comment
+
+        Returns:
+        -------
+        N/A
+        """
+
         conn = self.conn
         c = conn.cursor()
 
@@ -408,12 +471,29 @@ class Sqldb:
         (sim_id, sequence, ensemble, T_start, T_end, T_damp, timestep, steps, log, comment)
         VALUES
         (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-        """, (self.sim_id, sequence, ensemble, T_start, T_end, T_damp, timestep, steps, log, comment))
+        """, (sim_id, sequence, ensemble, T_start, T_end, T_damp, timestep, steps, log, comment))
 
         conn.commit()
 
 
-    def add_sim_parameters(self, e_AB, alpha=None, Gamma=None, e_AA=None, e_BB=None, e_SA=None, e_SB=None, **kwargs):
+    def add_sim_parameters(self, sim_id, e_AB, alpha=None, Gamma=None, e_AA=None, e_BB=None, e_SA=None, e_SB=None, **kwargs):
+        """
+        add a new entry to the sim_dynamics; thermal history
+        Parameters:
+        ----------
+        sim_id (int): the simulation id (primary key in the sim table)
+        e_AB (float): interaction parameter between A and B
+        alpha (float): parameter that controls both e_AA and e_BB
+        Gamma (float): substrate property, which controls e_SA and e_SB
+        e_AA (float): interaction parameter between A and A
+        e_BB (float): interaction parameter between B and B
+        e_SA (float): interaction parameter between S and A
+        e_SB (float): interaction parameter between S and B
+        
+        Returns:
+        -------
+        N/A
+        """
 
         conn = self.conn
         c = conn.cursor()
@@ -421,13 +501,15 @@ class Sqldb:
         c.execute("""
         INSERT INTO sim_parameters (sim_id, e_AB, alpha, Gamma, e_AA, e_BB, e_SA, e_SB)
         VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?);""", (self.sim_id, e_AB, alpha, Gamma, e_AA, e_BB, e_SA, e_SB))
+        (?, ?, ?, ?, ?, ?, ?, ?);""", (sim_id, e_AB, alpha, Gamma, e_AA, e_BB, e_SA, e_SB))
 
         conn.commit()
 
 
     def _generate_condition(self, keys, args):
-
+        """
+        helper function to deal with conditions
+        """
         conditions = []
         values = []
 
@@ -441,6 +523,18 @@ class Sqldb:
 
 
     def query_chain(self, **kwargs):
+        """
+        query data from the chains table
+        Parameters:
+        ----------
+        kwargs (dict): anything can be passed, but only 'N' and 'f_A' work
+            N (int): chain length
+            f_A (float): fraction of minority A; architecture of linear BCP
+        
+        Returns:
+        -------
+        tbl (pandas DataFrame): querying result
+        """
 
         query = """
         SELECT
@@ -466,6 +560,19 @@ class Sqldb:
 
 
     def query_layer(self, **kwargs):
+        """
+        query data from the layers table
+        Parameters:
+        ----------
+        kwargs (dict): anything can be passed, but only 'layer_id', 'chain_id', and 'n' work
+            layer_id (int): layer ID
+            chain_id (int): chain ID
+            n (int): number of chains/molecules
+        
+        Returns:
+        -------
+        tbl (pandas DataFrame): querying result
+        """
 
         query = """
         SELECT
@@ -491,6 +598,16 @@ class Sqldb:
 
 
     def query_film_by_layerid(self, layer_id):
+        """
+        given layer_id, query data from the film_info table
+        Parameters:
+        ----------
+        layer_id (int): layer ID
+        
+        Returns:
+        -------
+        tbl (pandas DataFrame): querying result
+        """
 
         query = """
         SELECT
@@ -546,6 +663,16 @@ class Sqldb:
 
 
     def query_film_by_filmid(self, film_id):
+        """
+        given film_id, query data from the film_info table
+        Parameters:
+        ----------
+        film_id (int): film ID
+        
+        Returns:
+        -------
+        tbl (pandas DataFrame): querying result
+        """
 
         query = """
         SELECT
@@ -597,6 +724,18 @@ class Sqldb:
 
 
     def query_sim(self, **kwargs):
+        """
+        query data from the sims table
+        Parameters:
+        ----------
+        kwargs (dict): anything can be passed, but only 'sim_id' and 'film_id' work
+            sim_id (int): simulation ID
+            film_id (int): film ID
+        
+        Returns:
+        -------
+        tbl (pandas DataFrame): querying result
+        """
 
         query = """
         SELECT
@@ -621,6 +760,17 @@ class Sqldb:
 
 
     def report_sim(self, sim_id):
+        """
+        summarize simulation
+        Parameters:
+        ----------
+        sim_id (int): simulation ID
+        
+        Returns:
+        -------
+        par (pandas DataFrame): sim_parameters
+        dyn (pandas DataFrame): sim_dynamics
+        """
 
         conn = self.conn
 
@@ -711,6 +861,16 @@ class Sqldb:
 
 
     def get_types(self, sim_id):
+        """
+        get types of beads constructing layers and films
+        Parameters:
+        ----------
+        sim_id (int): simulation ID
+        
+        Returns:
+        -------
+        types (dict): types of beads
+        """
 
         query = """
         SELECT
@@ -751,6 +911,16 @@ class Sqldb:
 
 
     def get_path(self, sim_id):
+        """
+        get path to the simulation results
+        Parameters:
+        ----------
+        sim_id (int): simulation ID
+        
+        Returns:
+        -------
+        path (str): path to the simulation results
+        """
 
         query = """
         SELECT
@@ -770,7 +940,17 @@ class Sqldb:
 
 
     def get_substrate_info(self, sim_id):
+        """
+        get the information of substrate
+        Parameters:
+        ----------
+        sim_id (int): simulation ID
         
+        Returns:
+        -------
+        comment (str): comment/detail of the substrate
+        """
+
         query = """
         SELECT
             substrates.comment
@@ -791,9 +971,9 @@ class Sqldb:
 
 
     def close(self):
-        '''
+        """
         close connection
-        '''
+        """
 
         conn = self.conn
         conn.close()
@@ -801,9 +981,9 @@ class Sqldb:
 
 
 def parse(path=None, pattern_suffix=None, dynamics={}, parameters={}):
-    '''
+    """
     call parse_log and parse_path
-    '''
+    """
     if path is None:
         path = os.getcwd()
 
@@ -827,9 +1007,9 @@ def parse(path=None, pattern_suffix=None, dynamics={}, parameters={}):
 
 
 def parse_log(path, pattern_suffix=None, dynamics={}):
-    '''
+    """
     extract from log files located in equil directories in the given path 
-    '''
+    """
 
     dir_pattern = re.compile(r"(?<=equil_)\d+$")
     if pattern_suffix is not None:
@@ -920,9 +1100,9 @@ def parse_log(path, pattern_suffix=None, dynamics={}):
 
 
 def parse_path(path, parameters={}):
-    '''
+    """
     extract parameters from the given path
-    '''
+    """
 
     pattern_eAB = re.compile(r"(?<=eAB_)[+-]?\d+(?:\.\d+)?")
     match = pattern_eAB.search(path)
