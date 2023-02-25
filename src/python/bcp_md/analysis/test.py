@@ -1541,7 +1541,7 @@ class DumpProgress:
             from mpl_toolkits.axes_grid1 import make_axes_locatable
             fig, ax = plt.subplots(figsize=(4,3))
             im = ax.imshow(S_final, vmin=-0.5, vmax=1.0, cmap=Colormaps.cmaps['BWR'], origin='lower')
-            ax.plot([xticks[0], xticks[-1]], [self.h, self.h], 'k--', lw=0.5)
+            ax.plot([xticks[0], xticks[-1]], [self.h/2/width, self.h/2/width], 'k--', lw=0.5)
             ax.set_aspect('auto')
             divider = make_axes_locatable(ax)
             cax = divider.append_axes("right", size="5%", pad=0.05)
@@ -1893,11 +1893,20 @@ class DumpProgress:
             self.results.update({'lambda': lambda_res})
 
 
-    def compute_objsize(self, types, delta=[0.75, 0.75, 0.5]):
-        '''
+    def compute_objsize(self, types, pop_first=True, delta=[0.75, 0.75, 0.5]):
+        """
         carry out film resconstruction by looking at every height
         with the matrix flood-filled, calculate the size of each morphological object
-        '''
+        Parameters:
+        ----------
+        types (list): types of beads of interesting
+        pop_first (bool): equil_0/dump.0.0 is normally disordered; True to avoid carrying out floodfill on the first dump
+        delta (list): binning size
+
+        Returns:
+        --------
+        N/A
+        """
 
         from scipy.ndimage import gaussian_filter
 
@@ -1907,7 +1916,9 @@ class DumpProgress:
         rank = self.comm.Get_rank()
 
         fnames = self.fnames.copy()
-        fnames.pop(0) #not to compute for the initial configuration
+        if pop_first:
+            print("popped the first dump (inditial, disordred)")
+            fnames.pop(0) #not to compute for the initial configuration
 
         fnames = [fnames[self.Nrepeat*ind: self.Nrepeat*(ind + 1)] for ind in range(int(len(fnames)/self.Nrepeat))]
      
@@ -2015,6 +2026,11 @@ class DumpProgress:
             req.Wait()
 
         if rank == 0:
+
+            if pop_first:
+                # pad to keep res of the same length as steps
+                pad = np.ones((1, ll_max + 1, 3))*np.nan
+                res = np.vstack((pad, res))
 
             self.results.update({'f_dot': res})
             #for ind, val in enumerate(res): 
