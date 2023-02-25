@@ -1173,25 +1173,24 @@ class DumpProgress:
         return trj
 
 
-    def compute_density(self, types, zlo, zhi, n_bins):
+    def compute_density(self, types, zlo, zhi, width):
         """
         compute density through the film thickness
 
         Parameters:
         ----------
-        types: types of beads to be used to compute density
-        zlo: lower limit
-        zhi: upper limit
-        n_bins: number of bins
+        types (list): types of beads to be used to compute density
+        zlo (float): lower limit
+        zhi (float): upper limit
+        width (float): binning size
 
         Returns:
         ----------
         N/A
         """
 
-        self.zlo = zlo
-        self.zhi = zhi
-        self.bins = np.linspace(zlo, zhi, n_bins)
+        n_bins = int((zhi - zlo)/width)
+        self.bins = np.linspace(zlo, zhi, n_bins+1)
 
         size = self.comm.Get_size()
         rank = self.comm.Get_rank()
@@ -1203,7 +1202,7 @@ class DumpProgress:
         if rank == size - 1: 
             end_row = len(self.fnames)
 
-        density_tmp = np.empty([len(self.fnames), n_bins - 1])
+        density_tmp = np.empty([len(self.fnames), n_bins])
         for iind in range(start_row, end_row):
 
             trj = self.fix_blankdump(iind)
@@ -1220,7 +1219,7 @@ class DumpProgress:
                 if iind == size - 1: 
                     end_row = len(self.fnames)
 
-                recv = np.empty([len(self.fnames), n_bins - 1])
+                recv = np.empty([len(self.fnames), n_bins])
                 req = self.comm.Irecv(recv, source=iind)
                 req.Wait()
 
@@ -1254,7 +1253,7 @@ class DumpProgress:
                 'xticks': xticks,
                 'xticklabels': xticklabels,
                 'xlabel': r'time ($\times 10^{6} \tau$)',
-                'yticks': np.linspace(0, n_bins-1, 5),
+                'yticks': np.linspace(0, n_bins, 5),
                 'yticklabels': np.linspace(self.bins[0], self.bins[-1], 5),
                 'ylabel': r'$z$ ($\sigma$)',
             }
@@ -1262,7 +1261,7 @@ class DumpProgress:
             res.plot(save='density_evol.png', show=False, plot_args=plot_args)
 
             t = np.linspace(0, density_final.shape[1]-1, density_final.shape[1])
-            tt, zz = np.meshgrid(t - 0.5, np.linspace(0, n_bins-2, n_bins-1))
+            tt, zz = np.meshgrid(t - 0.5, np.linspace(0, n_bins-1, n_bins))
 
             result.update({'tt': tt})
             result.update({'zz': zz})
@@ -1290,7 +1289,7 @@ class DumpProgress:
         return density
 
 
-    def compute_localfraction(self, types1, types2, zlo, zhi, n_bins):
+    def compute_localfraction(self, types1, types2, zlo, zhi, width):
         """
         compute local fraction of a component in the blobs made by blocks of a certain type
         the complement set of types1 and types2 over types 2
@@ -1299,16 +1298,16 @@ class DumpProgress:
         ----------
         types1 (list): types of a component
         types2 (list): types of a type of block
-        zlo: lower limit
-        zhi: upper limit
-        n_bins: number of bins
+        zlo (float): lower limit
+        zhi (float): upper limit
+        width (float): binning size
 
         Returns:
         ----------
         N/A
         """
-
-        self.bins = np.linspace(zlo, zhi, n_bins)
+        n_bins = int((zhi - zlo)/width)
+        self.bins = np.linspace(zlo, zhi, n_bins+1)
 
         size = self.comm.Get_size()
         rank = self.comm.Get_rank()
@@ -1320,7 +1319,7 @@ class DumpProgress:
         if rank == size - 1: 
             end_row = len(self.fnames)
 
-        fraction_tmp = np.empty([len(self.fnames), n_bins - 1])
+        fraction_tmp = np.empty([len(self.fnames), n_bins])
         for iind in range(start_row, end_row):
 
             trj = self.fix_blankdump(iind)
@@ -1337,7 +1336,7 @@ class DumpProgress:
                 if iind == size - 1: 
                     end_row = len(self.fnames)
 
-                recv = np.empty([len(self.fnames), self.n_bins - 1])
+                recv = np.empty([len(self.fnames), n_bins])
                 req = self.comm.Irecv(recv, source=iind)
                 req.Wait()
 
@@ -1371,7 +1370,7 @@ class DumpProgress:
                 'xticks': xticks,
                 'xticklabels': xticklabels,
                 'xlabel': r'time ($\times 10^{6} \tau$)',
-                'yticks': np.linspace(0, n_bins-1, 5),
+                'yticks': np.linspace(0, n_bins, 5),
                 'yticklabels': np.linspace(self.bins[0], self.bins[-1], 5),
                 'ylabel': r'$z$ ($\sigma$)',
             }
@@ -1416,9 +1415,10 @@ class DumpProgress:
         Parameters:
         ----------
         bond_types (list): types of bonds that connect A and B blocks (AB)
-        zlo: lower limit
-        zhi: uppder limit
-        width: binning size
+        zlo (float): lower limit
+        zhi (float): upper limit
+        width (float): binning size
+        buff (float): buffer for bins
         director (list): director vertor
 
         Returns:
@@ -1429,9 +1429,9 @@ class DumpProgress:
         self.zlo = zlo
         self.zhi = zhi
         self.width = width
-        self.buff = buff 
-        self.n_bins = int((zhi - zlo)/width)
+        self.buff = buff
         self.director = np.asarray(director)
+        n_bins = int((zhi - zlo)/width)
 
         size = self.comm.Get_size()
         rank = self.comm.Get_rank()
@@ -1492,7 +1492,7 @@ class DumpProgress:
             end_row = len(self.fnames)
 
         # 0: time, 1: bin along z
-        S_tmp = np.empty([len(self.fnames), self.n_bins])
+        S_tmp = np.empty([len(self.fnames), n_bins])
         for iind in range(start_row, end_row):
 
             trj = self.fix_blankdump(iind)
@@ -1504,7 +1504,7 @@ class DumpProgress:
             S_tmp[iind, :] = tmp
 
         if rank == 0:
-            S_1D = np.empty([len(self.fnames), self.n_bins])
+            S_1D = np.empty([len(self.fnames), n_bins])
             S_1D[start_row:end_row, :] = S_tmp[start_row:end_row]
 
             for iind in range(1, size):
@@ -1513,7 +1513,7 @@ class DumpProgress:
                 if iind == size - 1:
                     end_row = len(self.fnames)
 
-                recv = np.empty([len(self.fnames), self.n_bins])
+                recv = np.empty([len(self.fnames), n_bins])
                 req = self.comm.Irecv(recv, source=iind)
                 req.Wait()
 
@@ -1552,8 +1552,8 @@ class DumpProgress:
             ax.set_xticks(xticks)
             ax.set_xticklabels([format(i*self.Nfreq*0.006*pow(10,-6), '.4f') for i in xticks])
             ax.set_xlabel(r'time ($\times 10^{6} \tau$)')
-            ax.set_yticks(np.linspace(0, self.n_bins-1,5))
-            ax.set_ylim(0 - 0.5, self.n_bins-1 + 0.5)
+            ax.set_yticks(np.linspace(0, n_bins-1,5))
+            ax.set_ylim(0 - 0.5, n_bins-1 + 0.5)
             ax.set_yticklabels(np.linspace(self.zlo, self.zhi, 5))
             ax.set_ylabel(r'$z$ ($\sigma$)')
             plt.tight_layout(pad=1,h_pad=None,w_pad=None,rect=None)
@@ -1583,8 +1583,8 @@ class DumpProgress:
         self.zhi = zhi
         self.width = width
         self.buff = buff
-        self.n_bins = int((zhi - zlo)/width)
         self.director = np.asarray(director)
+        n_bins = int((zhi - zlo)/width)
 
         bins = np.linspace(0, 180, 72+1) # delta ranging from 0 to 180, delta_phi = 2.5
         #bins = np.linspace(0, 360, 144+1) # dleta ranging from 0 to 360, delta_phi = 2.5
@@ -1660,7 +1660,7 @@ class DumpProgress:
             end_row = len(self.fnames)
 
         # column 0: time, 1: height, 2: angle_bin
-        angle_hist_tmp = np.empty((len(self.fnames), self.n_bins*3, len(bins) - 1))
+        angle_hist_tmp = np.empty((len(self.fnames), n_bins*3, len(bins) - 1))
         for iind in range(start_row, end_row):
 
             trj = np.loadtxt(self.fnames[iind], skiprows=9)
@@ -1668,7 +1668,7 @@ class DumpProgress:
 
             cos_tmp = self._compute_cos(trj, iind)
 
-            for ind, ll in enumerate(np.linspace(0, self.zhi - self.width, self.n_bins)):
+            for ind, ll in enumerate(np.linspace(0, self.zhi - self.width, n_bins)):
                 ul = ll + self.width
 
                 cos_filtered = cos_tmp[np.logical_and(cos_tmp[:,0] > ll - self.buff, cos_tmp[:,0] < ul + self.buff)]
@@ -1677,7 +1677,7 @@ class DumpProgress:
                     angles = np.degrees(np.arccos(cos_filtered[cos_filtered[:,2] == bond_type, 1]))
 
                     hist, bin_edges = np.histogram(angles, bins)
-                    angle_hist_tmp[iind, ind + bond_ind*self.n_bins, :] = hist
+                    angle_hist_tmp[iind, ind + bond_ind*n_bins, :] = hist
 
                 angles = np.degrees(np.arccos(cos_filtered[:,1]))
 
@@ -1689,7 +1689,7 @@ class DumpProgress:
         del trj
 
         if rank == 0:
-            angle_hist = np.empty((len(self.fnames), self.n_bins*3, len(bin_edges)))
+            angle_hist = np.empty((len(self.fnames), n_bins*3, len(bin_edges)))
             angle_hist[start_row:end_row, :, :] = angle_hist_tmp[start_row:end_row, :, :]
 
             for iind in range(1, size):
@@ -1698,7 +1698,7 @@ class DumpProgress:
                 if iind == size - 1:
                     end_row = len(self.fnames)
 
-                recv = np.empty((len(self.fnames), self.n_bins*3, len(bin_edges)))
+                recv = np.empty((len(self.fnames), n_bins*3, len(bin_edges)))
                 req = self.comm.Irecv(recv, source=iind)
                 req.Wait()
 
@@ -1711,7 +1711,7 @@ class DumpProgress:
         if rank == 0:
 
             result = {}
-            result.update({'z': np.linspace(0, self.zhi - self.width, self.n_bins) + self.width/2})
+            result.update({'z': np.linspace(0, self.zhi - self.width, n_bins) + self.width/2})
             result.update({'phi': bin_edges})
 
             align = Data.Data_TimeSeries3D(angle_hist, self.Nrepeat)
