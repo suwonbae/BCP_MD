@@ -803,7 +803,8 @@ class Sqldb:
         
         T = []
         t = []
-        for dyn_line in dyn.values:
+        for ind, dyn_line in enumerate(dyn.values):
+
             sequence = dyn_line[0]
             T_start = dyn_line[1]
             T_end = dyn_line[2]
@@ -812,8 +813,15 @@ class Sqldb:
 
             T.append(T_start)
             T.append(T_end)
-            t.append(sequence*steps*timestep)
-            t.append((sequence+1)*steps*timestep)          
+
+            if ind == 0:
+                t.append(0)
+                t.append(steps*timestep)
+            elif ind > 0:
+                t_last = t[-1]
+                t_delta = steps*timestep
+                t.append(t_last)
+                t.append(t_last + t_delta)          
 
         e_AB, alpha, Gamma = par.values[0,:]
 

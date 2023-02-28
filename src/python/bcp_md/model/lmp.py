@@ -1111,7 +1111,7 @@ class Script:
         self._add_line("thermo_style\t\tcustom step temp press ke pe epair ebond pxx pyy pzz vol density")
         self._add_line("thermo\t\t\t\t100 ")
 
-        self._add_line("run\t\t\t\t\t10000000")
+        self._add_line(f"run\t\t\t\t\t${{steps}}")
 
         self._add_line("unfix\t\t\t\t1")
         self._add_line("unfix\t\t\t\tzeromomentum")
