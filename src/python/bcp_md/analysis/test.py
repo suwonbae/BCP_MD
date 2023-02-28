@@ -141,7 +141,7 @@ class Dump:
 
         h, w = binary_2D.shape
 
-        blobs = group2blob(binary_2D)
+        blobs, blob_tmp = group2blob(binary_2D)
 
         lam=[]
         cyl=[]
@@ -945,7 +945,8 @@ class DumpProgress:
 
         self.timestep = timestep
         self.results = {
-                'timestep': timestep
+                'timestep': timestep,
+                'path': path
                 }
 
         self.source_dirs = []
@@ -979,7 +980,7 @@ class DumpProgress:
 
         self.fnames = fnames
         self.steps = np.asarray(steps)
-        self.results.update({'steps': np.asarray(steps)})
+        #self.results.update({'steps': np.asarray(steps)})
 
         rank = self.comm.Get_rank()
 
@@ -1034,6 +1035,52 @@ class DumpProgress:
 
 
     def save_results(self, path=None):
+        """
+        save the results dict in the given path
+
+        Parameters:
+        ----------
+        path: path to directory in which the results dict is saved
+
+        Returns:
+        ----------
+        N/A
+        """
+
+        if self.comm.rank == 0:
+            if path is None:
+                path = self.path
+            
+            output = os.path.join(path, 'results.npy')
+            if os.path.exists(output):
+                results = np.load(output, allow_pickle=True).item()
+            else:
+                results = {}
+            
+            keys = self.results.keys()
+            keys_old = results.keys()
+
+            for key in keys:
+                if 'timestep' == key and 'timestep' not in keys_old:
+                    value = self.results.get(key)
+                    results.update({key: value})
+
+                elif 'path' == key and 'path' not in keys_old:
+                    value = self.results.get(key)
+                    results.update({key: value})
+
+                elif 'height' == key and 'height' not in keys_old:
+                    value = self.results.get(key)
+                    results.update({key: value})
+
+                else:
+                    value = self.results.get(key)
+                    results.update({key: value})
+            
+            np.save(output, results)
+                 
+
+    def save_results_old(self, path=None):
         """
         save the results dict in the given path
 
@@ -1238,8 +1285,13 @@ class DumpProgress:
             density_final = rho.mean
             density_final = density_final.transpose()
 
-            result.update({'mean': rho.mean.transpose()})
-            result.update({'std': rho.std.transpose()})
+            result.update({'steps': self.steps})
+            result.update({'types': types})
+            result.update({'zlo': zlo})
+            result.update({'zhi': zhi})
+            result.update({'width': width})
+            result.update({'mean': rho.mean})
+            result.update({'std': rho.std})
 
             res = Data.Data2D(z=density_final)
             xticks = np.linspace(0,len(self.source_dirs)*len(self.freqs), 4)
@@ -1267,6 +1319,15 @@ class DumpProgress:
             result.update({'zz': zz})
             result.update({'xticks': xticks})
             result.update({'xticklabels': xticklabels})
+
+            metadata = {}
+            metadata.update({'dir_start': self.dir_start})
+            metadata.update({'dir_end': self.dir_end})
+            metadata.update({'Nevery': self.Nevery})
+            metadata.update({'Nrepeat': self.Nrepeat})
+            metadata.update({'Nfreq': self.Nfreq})
+            metadata.update({'end': self.end})
+            result.update({'metadata': metadata})
 
             self.results.update({'density': result})
 
@@ -1355,8 +1416,14 @@ class DumpProgress:
             fraction_final = fraction.mean
             fraction_final = fraction_final.transpose()
 
-            result.update({'mean': fraction.mean.transpose()})
-            result.update({'std': fraction.std.transpose()})
+            result.update({'steps': self.steps})
+            result.update({'types1': types1})
+            result.update({'types2': types2})
+            result.update({'zlo': zlo})
+            result.update({'zhi': zhi})
+            result.update({'width': width})
+            result.update({'mean': fraction.mean})
+            result.update({'std': fraction.std})
 
             res = Data.Data2D(z=fraction_final)
             xticks = np.linspace(0,len(self.source_dirs)*len(self.freqs),4)
@@ -1377,7 +1444,16 @@ class DumpProgress:
 
             res.plot(save='fraction_evol.png', show=False, plot_args=plot_args)
 
-            self.results.update({'fraction': result})
+            metadata = {}
+            metadata.update({'dir_start': self.dir_start})
+            metadata.update({'dir_end': self.dir_end})
+            metadata.update({'Nevery': self.Nevery})
+            metadata.update({'Nrepeat': self.Nrepeat})
+            metadata.update({'Nfreq': self.Nfreq})
+            metadata.update({'end': self.end})
+            result.update({'metadata': metadata})
+
+            self.results.update({'localfraction': result})
 
 
     def _compute_localfraction(self, trj, types1, types2):
@@ -1408,7 +1484,7 @@ class DumpProgress:
         return fraction
 
 
-    def compute_orientation(self, bond_types, zlo, zhi, width, buff, director):
+    def compute_orientation(self, bond_types, zlo, zhi, width, buff, director, pseudo_bonds=None):
         """
         compute orientation of morphology (Hermanns order parameter, S at every height) w.r.t director
 
@@ -1419,7 +1495,8 @@ class DumpProgress:
         zhi (float): upper limit
         width (float): binning size
         buff (float): buffer for bins
-        director (list): director vertor
+        director (list): director vector
+        pseudo_bonds (str):  relative path to the pseudo_bonds file
 
         Returns:
         --------
@@ -1468,7 +1545,10 @@ class DumpProgress:
             subprocess.Popen('grep -A {} "Bonds" {} > temp.txt'.format(n_bonds + 1, path_to_file), shell=True).wait()
             bonds = np.loadtxt('temp.txt', skiprows=2)
             os.remove('temp.txt')
-            #bonds = np.loadtxt(os.path.join(self.path, 'equil_0', 'pseudo_bonds.txt'))
+
+            if pseudo_bonds is not None:
+                bonds = self._get_pseudo_bonds(pseudo_bonds)
+
             # choose bridge bonds between blocks
             for ind, bond_type in enumerate(bond_types):
                 if ind == 0:
@@ -1533,6 +1613,14 @@ class DumpProgress:
 
             print(np.max(S_final), np.min(S_final))
 
+            result.update({'steps': self.steps})
+            result.update({'pseudo_bonds': pseudo_bonds})
+            result.update({'bond_types': bond_types})
+            result.update({'zlo': zlo})
+            result.update({'zhi': zhi})
+            result.update({'width': width})
+            result.update({'buff': buff})
+            result.update({'director': director})
             result.update({'mean': op.mean})
             result.update({'std': op.std})
 
@@ -1557,12 +1645,21 @@ class DumpProgress:
             ax.set_yticklabels(np.linspace(self.zlo, self.zhi, 5))
             ax.set_ylabel(r'$z$ ($\sigma$)')
             plt.tight_layout(pad=1,h_pad=None,w_pad=None,rect=None)
-            plt.savefig('angle_map.png', dpi=1000)
+            plt.savefig('orientation_evol.png', dpi=1000)
 
-            self.results.update({'angle_map': result})
+            metadata = {}
+            metadata.update({'dir_start': self.dir_start})
+            metadata.update({'dir_end': self.dir_end})
+            metadata.update({'Nevery': self.Nevery})
+            metadata.update({'Nrepeat': self.Nrepeat})
+            metadata.update({'Nfreq': self.Nfreq})
+            metadata.update({'end': self.end})
+            result.update({'metadata': metadata})
+
+            self.results.update({'orientation': result})
 
 
-    def compute_chainalignment(self, bond_types, zlo, zhi, width, buff, director):
+    def compute_chain_alignment(self, bond_types, zlo, zhi, width, buff, director, pseudo_bonds=None):
         """
         compute angles of chains at every height w.r.t director
 
@@ -1572,7 +1669,8 @@ class DumpProgress:
         zlo: lower limit
         zhi: uppder limit
         width: binning size
-        director (list): director vertor
+        director (list): director vector
+        pseudo_bonds (str):  relative path to the pseudo_bonds file
 
         Returns:
         --------
@@ -1636,7 +1734,10 @@ class DumpProgress:
             subprocess.Popen('grep -A {} "Bonds" {} > temp.txt'.format(n_bonds + 1, path_to_file), shell=True).wait()
             bonds = np.loadtxt('temp.txt', skiprows=2)
             os.remove('temp.txt')
-            #bonds = np.loadtxt(os.path.join(self.path, 'equil_0', 'pseudo_bonds.txt'))
+
+            if pseudo_bonds is not None:
+                bonds = self._get_pseudo_bonds(pseudo_bonds)
+
             # choose bridge bonds between blocks
             for ind, bond_type in enumerate(bond_types):
                 if ind == 0:
@@ -1711,6 +1812,14 @@ class DumpProgress:
         if rank == 0:
 
             result = {}
+            result.update({'steps': self.steps})
+            result.update({'pseudo_bonds': pseudo_bonds})
+            result.update({'bond_types': bond_types})
+            result.update({'zlo': zlo})
+            result.update({'zhi': zhi})
+            result.update({'width': width})
+            result.update({'buff': buff})
+            result.update({'director': director})
             result.update({'z': np.linspace(0, self.zhi - self.width, n_bins) + self.width/2})
             result.update({'phi': bin_edges})
 
@@ -1719,14 +1828,283 @@ class DumpProgress:
             result.update({'hist_mean': align.mean})
             result.update({'hist_std': align.std})
 
+            metadata = {}
+            metadata.update({'dir_start': self.dir_start})
+            metadata.update({'dir_end': self.dir_end})
+            metadata.update({'Nevery': self.Nevery})
+            metadata.update({'Nrepeat': self.Nrepeat})
+            metadata.update({'Nfreq': self.Nfreq})
+            metadata.update({'end': self.end})
+            result.update({'metadata': metadata})
+
+            self.results.update({'chain_alignment': result})
+
+
+    def compute_S_and_phi(self, bond_types, zlo, zhi, width, buff, director, pseudo_bonds=None):
+        """
+        compute bothe the orientation and angles w.r.t director
+
+        Parameters:
+        ----------
+        bond_types (list): types of bonds that connect A and B blocks (AB)
+        zlo (float): lower limit
+        zhi (float): upper limit
+        width (float): binning size
+        buff (float): buffer for bins
+        director (list): director vector
+        pseudo_bonds (str):  relative path to the pseudo_bonds file
+
+        Returns:
+        --------
+        N/A
+        """
+
+        self.zlo = zlo
+        self.zhi = zhi
+        self.width = width
+        self.buff = buff
+        self.director = np.asarray(director)
+        n_bins = int((zhi - zlo)/width)
+
+        bins = np.linspace(0, 180, 72+1) # delta ranging from 0 to 180, delta_phi = 2.5
+        #bins = np.linspace(0, 360, 144+1) # dleta ranging from 0 to 360, delta_phi = 2.5
+
+        size = self.comm.Get_size()
+        rank = self.comm.Get_rank()
+
+        if rank == 0:
+            if zhi == None:
+                h = self.h
+            else:
+                h = zhi
+        else:
+            h = None
+
+        h = self.comm.bcast(h, root=0)
+
+        ll_max = zhi - width # lower limit max
+
+        if rank == 0:
+            # number of bonds varies
+            path = os.path.join(self.path, 'equil_0')
+            files = [f for f in os.listdir(path) if 'data' in f]
+            path_to_file = os.path.join(path, files[0])
+
+            print('* Chain geometry info extracted')
+            print('* path_to_file: {}'.format(path_to_file))
+
+            f = open(path_to_file, 'r') 
+
+            ind = 0
+            flag = 0
+
+            while flag == 0:
+                line = f.readline()
+                match = re.search('^\d+ bonds', line)
+                if match:
+                    n_bonds = int(line.split()[0])
+
+                match = re.search('^Atoms', line)
+                if match:
+                    flag = 1
+
+                ind += 1
+
+            f.close()
+            print('* # of bonds = {}'.format(n_bonds))
+
+            subprocess.Popen('grep -A {} "Bonds" {} > temp.txt'.format(n_bonds + 1, path_to_file), shell=True).wait()
+            bonds = np.loadtxt('temp.txt', skiprows=2)
+            os.remove('temp.txt')
+
+            if pseudo_bonds is not None:
+                bonds = self._get_pseudo_bonds(pseudo_bonds)
+
+            # choose bridge bonds between blocks
+            for ind, bond_type in enumerate(bond_types):
+                if ind == 0:
+                    logic = bonds[:,1] == bond_type
+                else:
+                    logic = np.logical_or(logic, bonds[:,1] == bond_type)
+            bonds = bonds[logic].astype(int)
+            self.bonds = bonds
+
+        else:
+            bonds = None
+
+        bonds = self.comm.bcast(bonds, root=0)
+        self.bonds = bonds
+
+        avg_rows_per_process = int(len(self.fnames)/size)
+
+        start_row = rank * avg_rows_per_process
+        end_row = start_row + avg_rows_per_process
+        if rank == size - 1:
+            end_row = len(self.fnames)
+
+        # 0: time, 1: bin along z
+        S_tmp = np.empty([len(self.fnames), n_bins])
+        # column 0: time, 1: height, 2: angle_bin
+        angle_hist_tmp = np.empty((len(self.fnames), n_bins*3, len(bins) - 1))
+
+        for iind in range(start_row, end_row):
+
+            trj = self.fix_blankdump(iind)
+            trj = trj[np.argsort(trj[:,0])]
+
+            cos_tmp = self._compute_cos(trj, iind)
+            tmp = self._compute_S(cos_tmp)
+            S_tmp[iind, :] = tmp
+
+            for ind, ll in enumerate(np.linspace(0, self.zhi - self.width, n_bins)):
+                ul = ll + self.width
+
+                cos_filtered = cos_tmp[np.logical_and(cos_tmp[:,0] > ll - self.buff, cos_tmp[:,0] < ul + self.buff)]
+
+                for bond_ind, bond_type in enumerate(bond_types, 1):
+                    angles = np.degrees(np.arccos(cos_filtered[cos_filtered[:,2] == bond_type, 1]))
+
+                    hist, bin_edges = np.histogram(angles, bins)
+                    angle_hist_tmp[iind, ind + bond_ind*n_bins, :] = hist
+
+                angles = np.degrees(np.arccos(cos_filtered[:,1]))
+
+                hist, bin_edges = np.histogram(angles, bins)
+                angle_hist_tmp[iind, ind, :] = hist
+
+            bin_edges = bin_edges[:-1] + (bin_edges[1] - bin_edges[0])/2
+
+        del trj
+
+        if rank == 0:
+            S_1D = np.empty([len(self.fnames), n_bins])
+            S_1D[start_row:end_row, :] = S_tmp[start_row:end_row]
+
+            for iind in range(1, size):
+                start_row = iind*avg_rows_per_process
+                end_row = start_row + avg_rows_per_process
+                if iind == size - 1:
+                    end_row = len(self.fnames)
+
+                recv = np.empty([len(self.fnames), n_bins])
+                req = self.comm.Irecv(recv, source=iind)
+                req.Wait()
+
+                S_1D[start_row:end_row, :] = recv[start_row:end_row]
+        else:
+            send = S_tmp
+            req = self.comm.Isend(send, dest=0)
+            req.Wait()
+
+        if rank == 0:
+            angle_hist = np.empty((len(self.fnames), n_bins*3, len(bin_edges)))
+            angle_hist[start_row:end_row, :, :] = angle_hist_tmp[start_row:end_row, :, :]
+
+            for iind in range(1, size):
+                start_row = iind*avg_rows_per_process
+                end_row = start_row + avg_rows_per_process
+                if iind == size - 1:
+                    end_row = len(self.fnames)
+
+                recv = np.empty((len(self.fnames), n_bins*3, len(bin_edges)))
+                req = self.comm.Irecv(recv, source=iind)
+                req.Wait()
+
+                angle_hist[start_row:end_row, :, :] = recv[start_row:end_row, :, :]
+        else:
+            send = angle_hist_tmp
+            req = self.comm.Isend(send, dest=0)
+            req.Wait()
+
+        if rank == 0:
+
+            result = {}
+            op = Data.Data_TimeSeries2D(S_1D, self.Nrepeat)
+
+            S_final = op.mean
+            S_final = S_final.transpose()
+
+            print(np.max(S_final), np.min(S_final))
+
+            result.update({'steps': self.steps})
+            result.update({'pseudo_bonds': pseudo_bonds})
+            result.update({'bond_types': bond_types})
+            result.update({'zlo': zlo})
+            result.update({'zhi': zhi})
+            result.update({'width': width})
+            result.update({'buff': buff})
+            result.update({'director': director})
+            result.update({'mean': op.mean})
+            result.update({'std': op.std})
+
+            xticks = np.linspace(0,len(self.source_dirs)*len(self.freqs),4)
+
+            from mpl_toolkits.axes_grid1 import make_axes_locatable
+            fig, ax = plt.subplots(figsize=(4,3))
+            im = ax.imshow(S_final, vmin=-0.5, vmax=1.0, cmap=Colormaps.cmaps['BWR'], origin='lower')
+            ax.plot([xticks[0], xticks[-1]], [self.h/2/width, self.h/2/width], 'k--', lw=0.5)
+            ax.set_aspect('auto')
+            divider = make_axes_locatable(ax)
+            cax = divider.append_axes("right", size="5%", pad=0.05)
+            cbar = fig.colorbar(im, cax=cax)
+            cbar.set_ticks([-0.5, 0, 1.0])
+            cbar.set_label(r'$S$')
+            ax.set_xlim(xticks[0] - 0.5, xticks[-1] + 0.5)
+            ax.set_xticks(xticks)
+            ax.set_xticklabels([format(i*self.Nfreq*0.006*pow(10,-6), '.4f') for i in xticks])
+            ax.set_xlabel(r'time ($\times 10^{6} \tau$)')
+            ax.set_yticks(np.linspace(0, n_bins-1,5))
+            ax.set_ylim(0 - 0.5, n_bins-1 + 0.5)
+            ax.set_yticklabels(np.linspace(self.zlo, self.zhi, 5))
+            ax.set_ylabel(r'$z$ ($\sigma$)')
+            plt.tight_layout(pad=1,h_pad=None,w_pad=None,rect=None)
+            plt.savefig('orientation_evol.png', dpi=1000)
+
+            metadata = {}
+            metadata.update({'dir_start': self.dir_start})
+            metadata.update({'dir_end': self.dir_end})
+            metadata.update({'Nevery': self.Nevery})
+            metadata.update({'Nrepeat': self.Nrepeat})
+            metadata.update({'Nfreq': self.Nfreq})
+            metadata.update({'end': self.end})
+            result.update({'metadata': metadata})
+
+            self.results.update({'orientation': result})
+
+            result = {}
+            result.update({'steps': self.steps})
+            result.update({'pseudo_bonds': pseudo_bonds})
+            result.update({'bond_types': bond_types})
+            result.update({'zlo': zlo})
+            result.update({'zhi': zhi})
+            result.update({'width': width})
+            result.update({'buff': buff})
+            result.update({'director': director})
+            result.update({'z': np.linspace(0, self.zhi - self.width, n_bins) + self.width/2})
+            result.update({'phi': bin_edges})
+
+            align = Data.Data_TimeSeries3D(angle_hist, self.Nrepeat)
+
+            result.update({'hist_mean': align.mean})
+            result.update({'hist_std': align.std})
+
+            metadata = {}
+            metadata.update({'dir_start': self.dir_start})
+            metadata.update({'dir_end': self.dir_end})
+            metadata.update({'Nevery': self.Nevery})
+            metadata.update({'Nrepeat': self.Nrepeat})
+            metadata.update({'Nfreq': self.Nfreq})
+            metadata.update({'end': self.end})
+            result.update({'metadata': metadata})
+
             self.results.update({'chain_alignment': result})
 
 
     def _compute_cos(self, trj, iind):
-        '''
+        """
         compute the position of the mid point of A-b-B chain
         and the angle made by the AB vector and the director
-        '''
+        """
 
         ind_A = self.bonds[:,2] - 1
         ind_B = self.bonds[:,3] - 1
@@ -1785,9 +2163,9 @@ class DumpProgress:
     
 
     def _compute_S(self, cos):
-        '''
+        """
         compute the Hermanns order parameter
-        '''
+        """
 
         # DEFAULT: width = 1.0, buffer = 0.5 (both above and below)
         bin_starts = np.linspace(self.zlo, self.zhi - self.width, int((self.zhi-self.zlo)/self.width))
@@ -1803,6 +2181,23 @@ class DumpProgress:
                 S[bin_ind] = (3*np.mean(cos_binned[bin_ind]**2) - 1)/2
 
         return S
+
+
+    def _get_pseudo_bonds(self, pseudo_bonds):
+        """
+        # pseudo_bonds is the relative path to the file
+        # ex) pseudo_bonds = 'equil_0/pseudo_bonds.txt'
+        """
+
+        fname = os.path.join(self.path, pseudo_bonds)
+
+        if os.path.exists(fname):
+            print("reading in pseudo_bonds")
+            bonds = np.loadtxt(os.path.join(self.path, pseudo_bonds))
+        else:
+            print("missing psuedo_bonds")
+        
+        return bonds
 
 
     def d_pbc(self, vector1, vector2):
@@ -1890,7 +2285,30 @@ class DumpProgress:
             req.Wait()
 
         if rank == 0:
-            self.results.update({'lambda': lambda_res})
+
+            result = {}
+
+            lmbd = Data.Data_TimeSeries1D(lambda_res, self.Nrepeat)
+
+            lambda_final = lmbd.mean
+            lambda_final = lambda_final
+
+            result.update({'steps': self.steps})
+            result.update({'types': types})
+
+            result.update({'mean': lambda_final})
+            result.update({'std': lmbd.std})
+
+            metadata = {}
+            metadata.update({'dir_start': self.dir_start})
+            metadata.update({'dir_end': self.dir_end})
+            metadata.update({'Nevery': self.Nevery})
+            metadata.update({'Nrepeat': self.Nrepeat})
+            metadata.update({'Nfreq': self.Nfreq})
+            metadata.update({'end': self.end})
+            result.update({'metadata': metadata})
+
+            self.results.update({'lambda': result})
 
 
     def compute_objsize(self, types, pop_first=True, delta=[0.75, 0.75, 0.5]):
@@ -1917,8 +2335,9 @@ class DumpProgress:
 
         fnames = self.fnames.copy()
         if pop_first:
-            print("popped the first dump (inditial, disordred)")
             fnames.pop(0) #not to compute for the initial configuration
+            if rank == 0:
+                print("popped the first dump (inditial, disordred)")
 
         fnames = [fnames[self.Nrepeat*ind: self.Nrepeat*(ind + 1)] for ind in range(int(len(fnames)/self.Nrepeat))]
      
@@ -1962,7 +2381,7 @@ class DumpProgress:
                 binary2D = binary3D[:, :, ll*2: ul*2].sum(axis=2)
 
                 binary2D[binary2D > 0] = 1
-                binary2D = gaussian_filter(binary2D, 1)
+                binary2D = gaussian_filter(binary2D, 0.9)#1)
                 binary2D[binary2D > 0.5] = 1
                 binary2D[binary2D < 0.5] = 0
 
@@ -1976,7 +2395,7 @@ class DumpProgress:
                 line = []
                 dot = []
                 try:
-                    blobs = group2blob(binary2D)
+                    blobs, blob_tmp = group2blob(binary2D)
 
                     h, w = binary2D.shape
 
@@ -2032,7 +2451,26 @@ class DumpProgress:
                 pad = np.ones((1, ll_max + 1, 3))*np.nan
                 res = np.vstack((pad, res))
 
-            self.results.update({'f_dot': res})
+            result = {}
+
+            result.update({'steps': self.steps})
+            result.update({'types': types})
+            result.update({'pop_first': pop_first})
+            result.update({'delta': delta})
+
+            result.update({'res': res})
+
+            metadata = {}
+            metadata.update({'dir_start': self.dir_start})
+            metadata.update({'dir_end': self.dir_end})
+            metadata.update({'Nevery': self.Nevery})
+            metadata.update({'Nrepeat': self.Nrepeat})
+            metadata.update({'Nfreq': self.Nfreq})
+            metadata.update({'end': self.end})
+            result.update({'metadata': metadata})
+
+            self.results.update({'f_dot': result})
+
             #for ind, val in enumerate(res): 
             #    plt.figure()
             #    plt.plot(val[:,0], val[:,1])
@@ -2055,12 +2493,13 @@ class Thermo:
 
         if log_files is None: raise Exception("specify log files")
 
-        self.fnames = log_files
+        self.fnames = natural_sort(log_files)
         self.keys = None
         self.available_keys = []
 
         self._initialize()
     
+
     def _initialize(self):
         
         with open(self.fnames[0]) as fin:
@@ -2070,7 +2509,9 @@ class Thermo:
                 if m:
                     self.available_keys = line.split(" ")[:-1]
 
+
     def set_keys(self, keys=None):
+
         if keys is not None:
             self.keys = keys
     
@@ -2143,6 +2584,14 @@ class Thermo:
                 outputs = np.concatenate((outputs, output[1:, :]))
 
         self.outputs = outputs
+
+
+    def save(self, path=None):
+
+        if path is not None:
+            np.save(os.path.join(path, "thermo.npy", self.outputs))
+        else:
+            np.save("thermo.npy", self.outputs)
 
 
 def sigmoid(v, x):
@@ -2413,3 +2862,8 @@ def contour_finder(matrix, x, y, contour, repeat=4):
             contour_finder(matrix, x, y+1, contour)
 
 
+def natural_sort(l):
+    convert = lambda text: int(text) if text.isdigit() else text.lower()
+    alphanum_key = lambda key: [convert(c) for c in re.split('([0-9]+)', key)]
+
+    return sorted(l, key=alphanum_key)
